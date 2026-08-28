@@ -273,7 +273,7 @@ export interface Database {
         Relationships: [];
       };
     };
-    Views: Record<string, never>;
+    Views: { [_ in never]: never };
     Functions: {
       is_admin: { Args: Record<string, never>; Returns: boolean };
       has_shop_access: { Args: { p_shop_id: string }; Returns: boolean };
@@ -344,7 +344,7 @@ export interface Database {
       ps_version: PsVersion;
       sync_status: SyncStatus;
     };
-    CompositeTypes: Record<string, never>;
+    CompositeTypes: { [_ in never]: never };
   };
 }
 
