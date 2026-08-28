@@ -8,6 +8,7 @@ import { BarChart3, LogOut, Menu, X } from 'lucide-react';
 import { SidebarNav } from '@/components/layout/sidebar-nav';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { Badge } from '@/components/ui/badge';
+import { withBasePath } from '@/lib/base-path';
 import { cn, initialsFrom } from '@/lib/utils';
 import type { Profile } from '@/lib/supabase/types';
 
@@ -107,7 +108,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
                 {isAdmin ? 'Admin' : 'Marketer'}
               </Badge>
             </div>
-            <form action="/auth/signout" method="post">
+            <form action={withBasePath('/auth/signout')} method="post">
               <button
                 type="submit"
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-content-muted transition-colors hover:bg-surface-hover hover:text-negative"

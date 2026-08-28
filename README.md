@@ -370,6 +370,27 @@ rm -rf .next/cache          # ~187 MB of local build cache, not needed to serve
 `git pull` — it has to be built or uploaded separately every time the source
 changes.
 
+#### Serving from a sub-path
+
+If the Application URL is a folder rather than the domain root — say
+`https://example.com/psdata` — set the base path as well:
+
+```ini
+NEXT_PUBLIC_BASE_PATH=/psdata
+```
+
+Without it the app builds and starts, but every internal redirect drops the
+prefix: opening `/psdata` bounces to `/login` instead of `/psdata/login`, which
+is a 404. Symptom to recognise:
+
+```
+https://example.com/psdata  ->  https://example.com/login?next=%2Fpsdata   404
+```
+
+Use no trailing slash, and leave the variable unset at the domain root. Like
+the other `NEXT_PUBLIC_` values it is baked in at build time, so **rebuild after
+changing it**.
+
 #### 5. Schedule the sync
 
 Add a cPanel **Cron Job** (every six hours shown here):
