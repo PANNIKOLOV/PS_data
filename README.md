@@ -90,7 +90,7 @@ Create a project at [supabase.com](https://supabase.com), then from
 
 ### 2. Apply the migrations
 
-The four files in `supabase/migrations/` must be applied **in filename order**.
+The files in `supabase/migrations/` must be applied **in filename order**.
 
 Using the Supabase CLI:
 
@@ -105,6 +105,8 @@ Or paste each file into the dashboard SQL editor, in this order:
 2. `20260101000100_row_level_security.sql` — policies and access predicates
 3. `20260101000200_analytics_functions.sql` — aggregation RPCs
 4. `20260101000300_grants.sql` — explicit privilege grants
+5. `20260101000400_harden_function_grants.sql` — revokes the implicit PUBLIC
+   EXECUTE grant and pins `search_path`
 
 ### 3. Configure the application
 
