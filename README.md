@@ -348,9 +348,16 @@ npm run build
 
 Then press **Restart** in the cPanel interface.
 
-> Use a full `npm ci`, **not** `npm ci --omit=dev`. Tailwind, its PostCSS plugin
-> and TypeScript are devDependencies but are all required to build. Omitting
-> them can produce a build that reports success while shipping no styles.
+> **Do not skip devDependencies.** TypeScript (`next.config.ts` is TypeScript,
+> and the build typechecks), Tailwind and its PostCSS plugin are all
+> devDependencies and all required to build.
+>
+> npm treats `NODE_ENV=production` as `--omit=dev`, so on a host that sets it —
+> cPanel's Node.js selector does, once the application mode is Production — a
+> plain `npm ci` quietly installs 82 packages instead of 389 and the build then
+> fails loading `next.config.ts`. The repository ships an `.npmrc` with
+> `include=dev` so this is handled without anyone having to remember it. If you
+> install with different tooling, pass `--include=dev` explicitly.
 
 #### Building elsewhere
 
