@@ -362,6 +362,41 @@ Add a cPanel **Cron Job** (every six hours shown here):
 0 */6 * * * curl -s -X POST https://your-domain.example/api/cron/sync -H "Authorization: Bearer YOUR_SYNC_CRON_SECRET" >/dev/null 2>&1
 ```
 
+#### If the build dies after "Compiled successfully"
+
+A crash like this, immediately after compilation succeeds, is a process quota
+rather than a code problem:
+
+```
+uncaughtException [Error: spawn /opt/alt/alt-nodejs20/root/usr/bin/node EAGAIN]
+Error: kill EPERM
+```
+
+`EAGAIN` on spawn means the host refused to create another process — CloudLinux
+caps concurrent processes per user (LVE `nproc`). Next fans page generation out
+across child processes and hits that ceiling. The `kill EPERM` afterwards is
+cascade noise from Next cleaning up workers it never got.
+
+`next.config.ts` already pins the build to a single worker (`cpus: 1`,
+`workerThreads: false`, `webpackBuildWorker: false`), which keeps it inside a
+tight process budget. This application prerenders three routes, so nothing is
+lost by serialising the work.
+
+If it still fails, raise the process limit for the account, or build elsewhere
+and upload as described above.
+
+#### Set the application mode to Production
+
+A warning reading:
+
+```
+⚠ You are using a non-standard "NODE_ENV" value in your environment.
+```
+
+means cPanel is passing something other than `production`. Set **Application
+mode** to *Production* on the Node.js app page, or add `NODE_ENV=production` to
+the environment variables, then rebuild.
+
 #### cPanel-specific gotchas
 
 **"Could not find a production build"** — `npm run build` has not been run, or
