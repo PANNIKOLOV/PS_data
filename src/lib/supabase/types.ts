@@ -93,6 +93,7 @@ export interface Database {
           shop_id: string;
           api_key_cipher: string;
           key_fingerprint: string;
+          updated_at?: string;
         };
         Update: {
           api_key_cipher?: string;

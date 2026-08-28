@@ -208,10 +208,32 @@ function normaliseBaseUrl(rawUrl: string): string {
     throw new PrestaShopError(`"${rawUrl}" is not a valid shop URL.`);
   }
 
+  // The URL parser is permissive: "ht!tp://not a url" yields the host "ht!tp"
+  // rather than throwing. Check the hostname is actually a plausible host so a
+  // typo is caught here instead of surfacing later as a confusing fetch error.
+  if (!isPlausibleHostname(parsed.hostname)) {
+    throw new PrestaShopError(
+      `"${rawUrl}" is not a valid shop URL.`,
+      undefined,
+      'Use the full storefront address, for example https://shop.example.com',
+    );
+  }
+
   // Tolerate an /api suffix so both "https://shop.com" and
   // "https://shop.com/api" identify the same shop.
   parsed.pathname = parsed.pathname.replace(/\/api\/?$/i, '/');
   return parsed.toString().replace(/\/+$/, '/');
+}
+
+/** Accepts DNS names and IP literals; rejects hosts containing illegal characters. */
+function isPlausibleHostname(hostname: string): boolean {
+  if (hostname.length === 0 || hostname.length > 253) return false;
+
+  // IPv6 literals arrive from the parser already wrapped in brackets.
+  if (hostname.startsWith('[') && hostname.endsWith(']')) return true;
+
+  const labels = hostname.split('.');
+  return labels.every((label) => /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/i.test(label));
 }
 
 function describeHttpError(status: number, body: string): string {
