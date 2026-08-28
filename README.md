@@ -401,7 +401,7 @@ lost by serialising the work.
 If it still fails, raise the process limit for the account, or build elsewhere
 and upload as described above.
 
-#### Set the application mode to Production
+#### Set the application mode to Production — this one breaks the build
 
 A warning reading:
 
@@ -409,9 +409,29 @@ A warning reading:
 ⚠ You are using a non-standard "NODE_ENV" value in your environment.
 ```
 
-means cPanel is passing something other than `production`. Set **Application
-mode** to *Production* on the Node.js app page, or add `NODE_ENV=production` to
-the environment variables, then rebuild.
+is not cosmetic. With `NODE_ENV` set to anything other than `production`, the
+build compiles, typechecks and collects page data, then fails on the very last
+step:
+
+```
+Error: <Html> should not be imported outside of pages/_document.
+Error occurred prerendering page "/404".
+Export encountered an error on /_error: /404, exiting the build.
+```
+
+Nothing in that message points at `NODE_ENV`, so it reads as a bug in the
+application. It is not — setting `NODE_ENV=production` makes it build cleanly.
+
+Set **Application mode** to *Production* on the Node.js app page. That fixes
+both the build and the running app, which also misbehaves in development mode.
+
+`NODE_ENV` **cannot** be fixed from `.env.local`: the value already present in
+the environment wins, and Next still sees the wrong one. To build before the
+panel setting takes effect, put it on the command line:
+
+```bash
+NODE_ENV=production npm run build
+```
 
 #### cPanel-specific gotchas
 
