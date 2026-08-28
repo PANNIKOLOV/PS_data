@@ -30,6 +30,7 @@ transit the network or reach the database.
 - [Privacy](#privacy)
 - [Development](#development)
 - [Deployment](#deployment)
+  - [cPanel (Phusion Passenger)](#cpanel-phusion-passenger)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -279,6 +280,88 @@ variables in the host, plus `SYNC_CRON_SECRET` if you want scheduled syncing.
 A full resync of a large store can take minutes. On platforms with short
 function timeouts, prefer incremental syncs on a schedule and run the initial
 full import from a longer-lived environment.
+
+### cPanel (Phusion Passenger)
+
+`app.js` in the repository root is the Passenger entry point. It mounts Next
+behind its own HTTP server using the framework's request handler, so
+middleware, server actions and static assets behave exactly as they do under
+`next start`.
+
+**Do not replace it with the "It works!" placeholder cPanel generates** — that
+file serves a plain-text page and will not run this application.
+
+#### 1. Choose the Node version
+
+In **Setup Node.js App**, pick **Node 20 or newer**. Next.js 15 does not run on
+older versions.
+
+#### 2. Create the application
+
+| Field | Value |
+| --- | --- |
+| Application root | where you upload the project, e.g. `ps-data` |
+| Application URL | the domain or subdomain to serve it from |
+| Application startup file | `app.js` |
+
+#### 3. Set the environment variables
+
+Add all four (plus `SYNC_CRON_SECRET` if used) in the **Environment variables**
+panel of the Node.js app.
+
+> **The two `NEXT_PUBLIC_` variables are read at build time, not run time.**
+> Next inlines them into the client bundle during `npm run build`, so they must
+> already be set before you build. Setting them only after building produces an
+> app that cannot reach Supabase from the browser, with no error at deploy time.
+>
+> The other variables (`SUPABASE_SERVICE_ROLE_KEY`,
+> `CREDENTIALS_ENCRYPTION_KEY`, `SYNC_CRON_SECRET`) are read at run time, so
+> changing those only needs a restart.
+
+#### 4. Install and build over SSH
+
+Passenger does not build for you. cPanel shows an "Enter to the virtual
+environment" command at the top of the app's page — run that first, so `node`
+and `npm` resolve to the version you selected:
+
+```bash
+source /home/USERNAME/nodevenv/ps-data/20/bin/activate && cd ~/ps-data
+npm ci --omit=dev
+npm run build
+```
+
+Then press **Restart** in the cPanel interface.
+
+If your host has no SSH access, build on your own machine and upload the
+generated `.next` directory alongside the source.
+
+#### 5. Schedule the sync
+
+Add a cPanel **Cron Job** (every six hours shown here):
+
+```
+0 */6 * * * curl -s -X POST https://your-domain.example/api/cron/sync -H "Authorization: Bearer YOUR_SYNC_CRON_SECRET" >/dev/null 2>&1
+```
+
+#### cPanel-specific gotchas
+
+**"Could not find a production build"** — `npm run build` has not been run, or
+was run outside the virtual environment so it wrote nothing usable. Re-run step
+4 and restart.
+
+**The build is killed part-way through.** Shared hosting often caps memory below
+what a Next build needs. Build locally and upload `.next` instead.
+
+**Changes do not appear.** Passenger caches the running process. Press
+**Restart**, or `touch tmp/restart.txt` in the application root.
+
+**Styles or scripts 404.** The application URL and the deployed path disagree.
+Confirm the Application URL matches where you are browsing, and that the whole
+`.next` directory was uploaded, not just its top level.
+
+**Static export is not an option.** This application needs a running Node
+process. `next export` cannot serve middleware, server actions or the sync API,
+so the login and admin flows would silently stop working.
 
 ## Troubleshooting
 
