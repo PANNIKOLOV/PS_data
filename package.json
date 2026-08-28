@@ -5,13 +5,14 @@
   "description": "Multi-shop PrestaShop order analytics platform with role-based access control.",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/build.mjs",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test --conditions=react-server \"src/**/__tests__/*.test.ts\"",
     "test:db": "./supabase/tests/run-tests.sh",
-    "verify": "npm run typecheck && npm run lint && npm run test && npm run build"
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "build:next": "next build"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",

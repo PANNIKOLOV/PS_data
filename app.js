@@ -17,8 +17,23 @@
 
 /* global PhusionPassenger */
 
+/*
+ * Pin NODE_ENV before Next is loaded.
+ *
+ * cPanel's Node.js selector exports its own NODE_ENV from the application mode
+ * setting. If that is left on development, React ships its development build
+ * and Next logs development-only warnings from a server that is otherwise
+ * running in production. This file only ever serves a production build, so the
+ * value is settled here rather than left to the panel.
+ *
+ * Must run before `require('next')` — Next reads NODE_ENV while its own module
+ * graph loads, so setting it afterwards has no effect.
+ */
+if (process.env.NODE_ENV !== 'production') {
+  process.env.NODE_ENV = 'production';
+}
+
 const http = require('node:http');
-const path = require('node:path');
 const next = require('next');
 
 const UNDER_PASSENGER = typeof PhusionPassenger !== 'undefined';
