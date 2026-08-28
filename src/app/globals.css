@@ -1,0 +1,210 @@
+@import 'tailwindcss';
+
+/* ==========================================================================
+   Design tokens
+
+   One palette, expressed as semantic roles rather than raw colours, so the
+   dark theme is a token swap instead of a second set of utility classes
+   scattered through the components.
+   ========================================================================== */
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'Roboto Mono', monospace;
+
+  --color-brand-50: oklch(0.97 0.014 254);
+  --color-brand-100: oklch(0.94 0.03 254);
+  --color-brand-200: oklch(0.89 0.056 254);
+  --color-brand-300: oklch(0.81 0.09 254);
+  --color-brand-400: oklch(0.71 0.14 258);
+  --color-brand-500: oklch(0.62 0.18 262);
+  --color-brand-600: oklch(0.54 0.2 264);
+  --color-brand-700: oklch(0.47 0.18 265);
+  --color-brand-800: oklch(0.4 0.15 265);
+  --color-brand-900: oklch(0.35 0.12 265);
+
+  --radius-card: 0.875rem;
+
+  /* Categorical series colours, ordered for maximum separation. */
+  --color-series-1: oklch(0.62 0.18 262);
+  --color-series-2: oklch(0.72 0.15 195);
+  --color-series-3: oklch(0.75 0.15 145);
+  --color-series-4: oklch(0.78 0.15 85);
+  --color-series-5: oklch(0.68 0.19 35);
+  --color-series-6: oklch(0.6 0.2 330);
+  --color-series-7: oklch(0.66 0.12 290);
+  --color-series-8: oklch(0.7 0.1 230);
+}
+
+/* Semantic surface roles, redefined wholesale for the dark theme. */
+:root {
+  --surface-page: oklch(0.985 0.002 250);
+  --surface-card: oklch(1 0 0);
+  --surface-raised: oklch(0.97 0.003 250);
+  --surface-hover: oklch(0.955 0.005 250);
+  --surface-inset: oklch(0.96 0.004 250);
+
+  --border-subtle: oklch(0.91 0.005 250);
+  --border-strong: oklch(0.85 0.008 250);
+
+  --text-primary: oklch(0.22 0.015 260);
+  --text-secondary: oklch(0.46 0.012 258);
+  --text-muted: oklch(0.6 0.01 258);
+  --text-inverted: oklch(0.99 0 0);
+
+  --accent: var(--color-brand-600);
+  --accent-hover: var(--color-brand-700);
+  --accent-soft: oklch(0.95 0.025 262);
+  --accent-text: var(--color-brand-700);
+
+  --positive: oklch(0.55 0.15 150);
+  --positive-soft: oklch(0.95 0.04 150);
+  --negative: oklch(0.55 0.19 25);
+  --negative-soft: oklch(0.96 0.03 25);
+  --warning: oklch(0.68 0.15 75);
+  --warning-soft: oklch(0.96 0.05 85);
+
+  --grid-line: oklch(0.92 0.004 250);
+  --shadow-card: 0 1px 2px oklch(0.2 0.02 260 / 0.04), 0 1px 3px oklch(0.2 0.02 260 / 0.06);
+  --shadow-raised: 0 4px 6px -1px oklch(0.2 0.02 260 / 0.07), 0 2px 4px -2px oklch(0.2 0.02 260 / 0.05);
+  --shadow-overlay: 0 20px 25px -5px oklch(0.2 0.02 260 / 0.12), 0 8px 10px -6px oklch(0.2 0.02 260 / 0.08);
+}
+
+.dark {
+  --surface-page: oklch(0.17 0.012 260);
+  --surface-card: oklch(0.21 0.014 260);
+  --surface-raised: oklch(0.25 0.016 260);
+  --surface-hover: oklch(0.27 0.018 260);
+  --surface-inset: oklch(0.19 0.013 260);
+
+  --border-subtle: oklch(0.29 0.016 260);
+  --border-strong: oklch(0.37 0.02 260);
+
+  --text-primary: oklch(0.96 0.004 250);
+  --text-secondary: oklch(0.75 0.012 255);
+  --text-muted: oklch(0.6 0.014 258);
+  --text-inverted: oklch(0.17 0.012 260);
+
+  --accent: var(--color-brand-400);
+  --accent-hover: var(--color-brand-300);
+  --accent-soft: oklch(0.3 0.06 262);
+  --accent-text: var(--color-brand-300);
+
+  --positive: oklch(0.75 0.16 152);
+  --positive-soft: oklch(0.3 0.06 152);
+  --negative: oklch(0.7 0.17 25);
+  --negative-soft: oklch(0.3 0.07 25);
+  --warning: oklch(0.8 0.14 80);
+  --warning-soft: oklch(0.32 0.06 80);
+
+  --grid-line: oklch(0.3 0.016 260);
+  --shadow-card: 0 1px 2px oklch(0 0 0 / 0.3), 0 1px 3px oklch(0 0 0 / 0.2);
+  --shadow-raised: 0 4px 6px -1px oklch(0 0 0 / 0.35), 0 2px 4px -2px oklch(0 0 0 / 0.25);
+  --shadow-overlay: 0 20px 25px -5px oklch(0 0 0 / 0.45), 0 8px 10px -6px oklch(0 0 0 / 0.3);
+}
+
+/* Expose the semantic roles as Tailwind utilities (bg-surface-card, text-muted…). */
+@theme inline {
+  --color-surface-page: var(--surface-page);
+  --color-surface-card: var(--surface-card);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-inset: var(--surface-inset);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+
+  --color-content-primary: var(--text-primary);
+  --color-content-secondary: var(--text-secondary);
+  --color-content-muted: var(--text-muted);
+  --color-content-inverted: var(--text-inverted);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+}
+
+@layer base {
+  * {
+    border-color: var(--border-subtle);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    background-color: var(--surface-page);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* A single visible focus treatment across every interactive element. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 0.25rem;
+  }
+
+  /* Tabular figures keep numeric columns from shifting as values change. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  .card-shadow {
+    box-shadow: var(--shadow-card);
+  }
+  .raised-shadow {
+    box-shadow: var(--shadow-raised);
+  }
+  .overlay-shadow {
+    box-shadow: var(--shadow-overlay);
+  }
+
+  /* Horizontal scroll container for wide tables on narrow screens. */
+  .scroll-x {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--surface-inset) 25%,
+      var(--surface-hover) 50%,
+      var(--surface-inset) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    to {
+      background-position: -200% 0;
+    }
+  }
+}
