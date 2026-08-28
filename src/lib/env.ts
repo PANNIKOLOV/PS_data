@@ -34,11 +34,44 @@ const serverSchema = z.object({
 /**
  * Next.js inlines `process.env.NEXT_PUBLIC_*` at build time only when the
  * property is accessed statically, so these are written out in full.
+ *
+ * Missing values fail the build rather than the first page view. That is
+ * deliberate: these are baked into the client bundle, so a build without them
+ * produces an application that looks fine until someone opens it. The raw
+ * validation error is replaced with something that names the fix, because it
+ * otherwise surfaces as a Zod stack trace inside a webpack chunk.
  */
-export const publicEnv = publicSchema.parse({
+const parsedPublicEnv = publicSchema.safeParse({
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
 });
+
+if (!parsedPublicEnv.success) {
+  const missing = parsedPublicEnv.error.issues.map((issue) => `  - ${issue.path.join('.')}: ${issue.message}`);
+  throw new Error(
+    [
+      '',
+      'Supabase is not configured.',
+      '',
+      ...missing,
+      '',
+      'These two are read at BUILD time, not run time — Next inlines them into',
+      'the browser bundle — so they must be set before `npm run build` runs.',
+      '',
+      'Create a .env.local file in the project root (see .env.example):',
+      '',
+      '  NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co',
+      '  NEXT_PUBLIC_SUPABASE_ANON_KEY=<publishable key>',
+      '',
+      'On shared hosting, prefer .env.local over the control panel environment',
+      'editor: panel variables usually reach the running app but not the shell',
+      'you build in.',
+      '',
+    ].join('\n'),
+  );
+}
+
+export const publicEnv = parsedPublicEnv.data;
 
 let cachedServerEnv: z.infer<typeof serverSchema> | null = null;
 

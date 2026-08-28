@@ -306,17 +306,33 @@ older versions.
 
 #### 3. Set the environment variables
 
-Add all four (plus `SYNC_CRON_SECRET` if used) in the **Environment variables**
-panel of the Node.js app.
+**Create a `.env.local` file in the application root**, rather than using the
+control panel's environment editor:
+
+```ini
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<publishable key>
+SUPABASE_SERVICE_ROLE_KEY=<secret key>
+CREDENTIALS_ENCRYPTION_KEY=<openssl rand -base64 32>
+```
+
+The panel injects variables into the process Passenger starts, but not into the
+SSH session you build from — so a build run by hand cannot see them, and fails
+while collecting page data. A `.env.local` file is read in both places: Next
+loads it during `next build`, and `app.prepare()` loads it at run time.
+
+Keep the file readable only by your account (`chmod 600 .env.local`); it holds
+the service-role key.
 
 > **The two `NEXT_PUBLIC_` variables are read at build time, not run time.**
 > Next inlines them into the client bundle during `npm run build`, so they must
-> already be set before you build. Setting them only after building produces an
-> app that cannot reach Supabase from the browser, with no error at deploy time.
+> already be set before you build. The build fails with an explanatory message
+> if they are missing, rather than producing an application that only breaks
+> once someone opens it.
 >
-> The other variables (`SUPABASE_SERVICE_ROLE_KEY`,
-> `CREDENTIALS_ENCRYPTION_KEY`, `SYNC_CRON_SECRET`) are read at run time, so
-> changing those only needs a restart.
+> The others (`SUPABASE_SERVICE_ROLE_KEY`, `CREDENTIALS_ENCRYPTION_KEY`,
+> `SYNC_CRON_SECRET`) are read at run time, so changing those needs only a
+> restart — no rebuild.
 
 #### 4. Install and build over SSH
 
