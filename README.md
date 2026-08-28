@@ -326,14 +326,33 @@ and `npm` resolve to the version you selected:
 
 ```bash
 source /home/USERNAME/nodevenv/ps-data/20/bin/activate && cd ~/ps-data
-npm ci --omit=dev
+npm ci
 npm run build
 ```
 
 Then press **Restart** in the cPanel interface.
 
-If your host has no SSH access, build on your own machine and upload the
-generated `.next` directory alongside the source.
+> Use a full `npm ci`, **not** `npm ci --omit=dev`. Tailwind, its PostCSS plugin
+> and TypeScript are devDependencies but are all required to build. Omitting
+> them can produce a build that reports success while shipping no styles.
+
+#### Building elsewhere
+
+The build needs roughly **1 GB of memory**, which is above some shared-hosting
+caps. If it gets killed, build on your own machine and upload the result.
+
+Only a small part of `.next` is needed to run. Upload everything except the
+build cache:
+
+```bash
+npm run build
+rm -rf .next/cache          # ~187 MB of local build cache, not needed to serve
+# upload the remaining .next directory (~7 MB) to the application root
+```
+
+`.next` is deliberately excluded from git, so it is never present after a
+`git pull` — it has to be built or uploaded separately every time the source
+changes.
 
 #### 5. Schedule the sync
 
