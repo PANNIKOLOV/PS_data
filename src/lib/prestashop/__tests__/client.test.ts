@@ -296,6 +296,24 @@ describe('url handling', () => {
     assert.match(requestLog[0]!.path, /^\/api\//);
   });
 
+  it('keeps the path of a shop installed in a subfolder', async () => {
+    // A shop at https://domain/myshop must be queried at /myshop/api/…, not
+    // /api/ at the domain root — `new URL(path, base)` would have dropped it.
+    const subfolder = new PrestaShopClient({ baseUrl: `${baseUrl}/myshop`, apiKey: API_KEY });
+    requestLog = [];
+    await subfolder.testConnection().catch(() => {
+      /* the stub serves nothing under /myshop, only the request path matters */
+    });
+    assert.match(requestLog[0]!.path, /^\/myshop\/api\//);
+  });
+
+  it('keeps a subfolder even when the URL also ends in /api', async () => {
+    const subfolder = new PrestaShopClient({ baseUrl: `${baseUrl}/myshop/api`, apiKey: API_KEY });
+    requestLog = [];
+    await subfolder.testConnection().catch(() => {});
+    assert.match(requestLog[0]!.path, /^\/myshop\/api\//);
+  });
+
   it('rejects a URL that cannot be parsed', () => {
     assert.throws(
       () => new PrestaShopClient({ baseUrl: 'ht!tp://not a url', apiKey: API_KEY }),

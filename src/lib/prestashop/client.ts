@@ -150,7 +150,10 @@ export class PrestaShopClient {
     path: string,
     params: Record<string, string>,
   ): Promise<{ response: Response; body: string }> {
-    const url = new URL(path, this.baseUrl);
+    // Concatenated rather than resolved: `new URL('/api/…', base)` discards the
+    // base URL's path, so a shop installed in a subfolder (…/myshop) would have
+    // its API requested at the domain root and answer 404.
+    const url = new URL(`${this.baseUrl}${path}`);
     for (const [key, value] of Object.entries(params)) {
       url.searchParams.set(key, value);
     }
@@ -220,9 +223,11 @@ function normaliseBaseUrl(rawUrl: string): string {
   }
 
   // Tolerate an /api suffix so both "https://shop.com" and
-  // "https://shop.com/api" identify the same shop.
+  // "https://shop.com/api" identify the same shop. Any other path segment is a
+  // shop installed in a subfolder and must be kept.
   parsed.pathname = parsed.pathname.replace(/\/api\/?$/i, '/');
-  return parsed.toString().replace(/\/+$/, '/');
+  // No trailing slash: request() appends paths that begin with one.
+  return parsed.toString().replace(/\/+$/, '');
 }
 
 /** Accepts DNS names and IP literals; rejects hosts containing illegal characters. */
@@ -271,7 +276,7 @@ function hintFor(status: number): string | undefined {
     case 403:
       return 'Grant the key GET permission on orders, customers, order_states, currencies and shops.';
     case 404:
-      return 'Enable Advanced Parameters → Webservice → "Enable PrestaShop Webservice", and make sure URL rewriting is on.';
+      return 'Enable Advanced Parameters → Webservice → "Enable PrestaShop Webservice", make sure URL rewriting (friendly URLs) is on, and if the shop lives in a subfolder include that folder in the shop URL (e.g. https://domain.com/myshop).';
     default:
       return undefined;
   }
