@@ -429,6 +429,26 @@ lost by serialising the work.
 If it still fails, raise the process limit for the account, or build elsewhere
 and upload as described above.
 
+#### If the build aborts with a Rust thread-pool panic
+
+```
+thread '<unnamed>' panicked at rayon-core/src/registry.rs:
+The global thread pool has not been initialized.: ThreadPoolBuildError
+{ kind: IOError(Os { code: 11, message: "Resource temporarily unavailable" }) }
+Build terminated by signal SIGABRT.
+```
+
+Same per-user process cap as the `EAGAIN` failure above, in a different layer:
+`experimental.cpus` governs the workers Next spawns, but its Rust parts (SWC,
+Lightning CSS) size their own thread pool to the visible CPU count.
+`scripts/build.mjs` sets `RAYON_NUM_THREADS=1` to keep that inside the same
+budget, so a current checkout should not hit this.
+
+It is load-dependent, so the same command can succeed and then fail minutes
+later. Note that the failure leaves `.next` half-written: a deployment that was
+serving fine starts returning "Could not find a production build" until a build
+completes. Rebuild rather than restarting.
+
 #### Set the application mode to Production — this one breaks the build
 
 A warning reading:

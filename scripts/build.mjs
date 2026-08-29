@@ -36,9 +36,30 @@ if (previous && previous !== 'production') {
   console.log(`Overriding NODE_ENV="${previous}" with "production" for this build.`);
 }
 
+/*
+ * Cap the Rust toolchain's thread pool too.
+ *
+ * `experimental.cpus` limits the workers Next spawns, but Next's Rust parts
+ * (SWC, Lightning CSS) build their own rayon pool sized to the visible CPU
+ * count. On a host with a per-user process cap that allocation is refused and
+ * the build aborts mid-run:
+ *
+ *   The global thread pool has not been initialized.: ThreadPoolBuildError
+ *   { kind: IOError(Os { code: 11, message: "Resource temporarily unavailable" }) }
+ *
+ * Worse than a clean failure, it leaves .next half-written, so a previously
+ * working deployment starts returning "Could not find a production build".
+ *
+ * Measured at no cost on a 4-core machine (33s against 35s), so it is set by
+ * default rather than kept as a fallback. An explicit value is respected.
+ */
+const threadEnv = process.env.RAYON_NUM_THREADS
+  ? {}
+  : { RAYON_NUM_THREADS: '1' };
+
 const child = spawn(process.execPath, [nextBin, 'build'], {
   stdio: 'inherit',
-  env: { ...process.env, NODE_ENV: 'production' },
+  env: { ...process.env, NODE_ENV: 'production', ...threadEnv },
 });
 
 child.on('exit', (code, signal) => {
