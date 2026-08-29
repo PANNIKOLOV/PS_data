@@ -53,9 +53,30 @@ if (previous && previous !== 'production') {
  * Measured at no cost on a 4-core machine (33s against 35s), so it is set by
  * default rather than kept as a fallback. An explicit value is respected.
  */
-const threadEnv = process.env.RAYON_NUM_THREADS
-  ? {}
-  : { RAYON_NUM_THREADS: '1' };
+/*
+ * The same cap is reachable from three directions, so all three are capped.
+ *
+ *   RAYON_NUM_THREADS   the Rust toolchain's pool (SWC, Lightning CSS)
+ *   UV_THREADPOOL_SIZE  libuv's pool, in every Node process the build starts
+ *   --v8-pool-size      V8's platform workers, which Node allocates at startup
+ *
+ * The third is the one that aborts hardest: a child process that cannot create
+ * its V8 pool dies on an assertion before running any of the build.
+ *
+ *   node[454251]: pthread_create: Resource temporarily unavailable
+ *   Assertion failed: (0) == (uv_thread_create(...))
+ *
+ * Each is applied only when not already set, so an explicit value still wins.
+ * NODE_OPTIONS is appended to rather than replaced.
+ */
+const threadEnv = {};
+if (!process.env.RAYON_NUM_THREADS) threadEnv.RAYON_NUM_THREADS = '1';
+if (!process.env.UV_THREADPOOL_SIZE) threadEnv.UV_THREADPOOL_SIZE = '1';
+
+const nodeOptions = process.env.NODE_OPTIONS ?? '';
+if (!nodeOptions.includes('--v8-pool-size')) {
+  threadEnv.NODE_OPTIONS = `${nodeOptions} --v8-pool-size=1`.trim();
+}
 
 const child = spawn(process.execPath, [nextBin, 'build'], {
   stdio: 'inherit',

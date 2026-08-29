@@ -429,6 +429,30 @@ lost by serialising the work.
 If it still fails, raise the process limit for the account, or build elsewhere
 and upload as described above.
 
+#### If the build aborts with a thread-creation failure
+
+The per-user process cap on shared hosting is reachable from several layers,
+and each produces a different-looking crash for the same underlying reason —
+`EAGAIN`, "Resource temporarily unavailable":
+
+| Message | Layer |
+| --- | --- |
+| `spawn ... EAGAIN` | Next's page-generation workers |
+| `rayon ... ThreadPoolBuildError` | the Rust toolchain (SWC, Lightning CSS) |
+| `pthread_create: Resource temporarily unavailable` | Node's own V8 worker pool |
+
+`scripts/build.mjs` caps all three (`RAYON_NUM_THREADS`, `UV_THREADPOOL_SIZE`
+and `--v8-pool-size`), and `next.config.ts` limits Next's workers, so a current
+checkout should stay inside a tight budget. Any of these can be overridden by
+setting it explicitly.
+
+If a build still aborts, the account's process limit is lower than a Next build
+can work in. Ask the host to raise it, or build elsewhere and upload — the
+runtime footprint is about 7 MB once `.next/cache` is removed, as described
+above. Note that each of these failures leaves `.next` half-written, so a
+deployment that was serving fine will start returning "Could not find a
+production build" until a build completes.
+
 #### If the build aborts with a Rust thread-pool panic
 
 ```
