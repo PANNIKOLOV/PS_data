@@ -16,11 +16,42 @@ export interface LoginState {
   error?: string;
 }
 
-/** Only same-origin paths are accepted, so `next` cannot become an open redirect. */
+/**
+ * Routes a successful sign-in may land on.
+ *
+ * A path matches when it equals an entry or is nested beneath one.
+ */
+const SIGN_IN_DESTINATIONS = [
+  '/dashboard',
+  '/shops',
+  '/settings',
+  '/admin/shops',
+  '/admin/users',
+  '/admin/sync',
+] as const;
+
+/**
+ * Resolves the post-login destination.
+ *
+ * `next` arrives from the query string, so it is checked against the routes
+ * this application actually serves rather than merely being confirmed as
+ * same-origin. That blocks the open redirect, and also stops a stale link —
+ * a bookmark from an older deployment, say, or browser autocomplete — from
+ * stranding someone on a path that does not exist here after they have
+ * successfully signed in.
+ */
 function safeRedirectPath(value: string | undefined): string {
   if (!value) return '/dashboard';
+
+  // Reject protocol-relative and absolute URLs outright.
   if (!value.startsWith('/') || value.startsWith('//')) return '/dashboard';
-  return value;
+
+  const [pathname] = value.split(/[?#]/) as [string];
+  const allowed = SIGN_IN_DESTINATIONS.some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`),
+  );
+
+  return allowed ? value : '/dashboard';
 }
 
 export async function signIn(_prevState: LoginState, formData: FormData): Promise<LoginState> {
