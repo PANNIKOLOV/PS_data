@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 
 import { requireAdmin } from '@/lib/auth';
-import { encryptSecret, fingerprintSecret } from '@/lib/crypto';
+import { decryptSecret, encryptSecret, fingerprintSecret } from '@/lib/crypto';
 import { PrestaShopClient, PrestaShopError } from '@/lib/prestashop/client';
 import { syncShop } from '@/lib/prestashop/sync';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -21,6 +21,105 @@ import { createAdminClient } from '@/lib/supabase/admin';
 export interface ActionState {
   error?: string;
   success?: string;
+}
+
+export interface DiagnosisState {
+  status?: 'ok' | 'failed';
+  message?: string;
+  hint?: string;
+  /** Raw facts about the attempt, shown verbatim so nothing is interpreted away. */
+  report?: { label: string; value: string }[];
+}
+
+const REQUIRED_RESOURCES = ['orders', 'customers', 'order_states', 'currencies'] as const;
+
+/**
+ * Tests a connection from the values currently in the form, before anything is
+ * saved, and reports exactly what happened: the URL that was requested, the
+ * HTTP status, the shop's own response, and which resources the key can see.
+ *
+ * On the edit form an empty key field means "test with the stored key", the
+ * same convention the save action uses.
+ */
+export async function diagnoseShopConnection(
+  _prev: DiagnosisState,
+  formData: FormData,
+): Promise<DiagnosisState> {
+  await requireAdmin();
+
+  const rawUrl = String(formData.get('baseUrl') ?? '').trim();
+  let apiKey = String(formData.get('apiKey') ?? '').trim();
+  const shopId = String(formData.get('shopId') ?? '');
+
+  if (!rawUrl) return { status: 'failed', message: 'Enter the shop URL first.' };
+
+  if (!apiKey && shopId) {
+    const supabase = createAdminClient();
+    const { data } = await supabase
+      .from('shop_credentials')
+      .select('api_key_cipher')
+      .eq('shop_id', shopId)
+      .single();
+    if (data) apiKey = decryptSecret(data.api_key_cipher);
+  }
+
+  if (!apiKey) return { status: 'failed', message: 'Enter the webservice key first.' };
+
+  let client: PrestaShopClient;
+  try {
+    client = new PrestaShopClient({ baseUrl: rawUrl, apiKey });
+  } catch (error) {
+    return { status: 'failed', message: describeConnectionError(error) };
+  }
+
+  const report: { label: string; value: string }[] = [
+    { label: 'Requested URL', value: client.apiRoot },
+  ];
+
+  try {
+    const { version, resources } = await client.testConnection();
+
+    report.push({ label: 'HTTP status', value: '200 OK' });
+    report.push({
+      label: 'PrestaShop version (PSWS-Version header)',
+      value: version ?? 'not reported',
+    });
+    report.push({
+      label: 'Resources visible to this key',
+      value: resources.length > 0 ? resources.join(', ') : 'none',
+    });
+
+    const missing = REQUIRED_RESOURCES.filter((resource) => !resources.includes(resource));
+    if (missing.length > 0) {
+      report.push({ label: 'Missing required resources', value: missing.join(', ') });
+      return {
+        status: 'failed',
+        message: `Connected, but the key has no access to: ${missing.join(', ')}.`,
+        hint: 'In the shop back office, grant the key GET permission on those resources under Advanced Parameters → Webservice.',
+        report,
+      };
+    }
+
+    return {
+      status: 'ok',
+      message: `Connected successfully${version ? ` to PrestaShop ${version}` : ''}.`,
+      report,
+    };
+  } catch (error) {
+    if (error instanceof PrestaShopError) {
+      if (error.url) report[0] = { label: 'Requested URL', value: error.url };
+      report.push({
+        label: 'HTTP status',
+        value: error.status ? String(error.status) : 'no HTTP response (network-level failure)',
+      });
+      if (error.bodySnippet) {
+        report.push({ label: 'Server response (first 300 characters)', value: error.bodySnippet });
+      }
+      return { status: 'failed', message: error.message, hint: error.hint, report };
+    }
+
+    return { status: 'failed', message: describeConnectionError(error), report };
+  }
 }
 
 const shopSchema = z.object({

@@ -14,13 +14,22 @@ import 'server-only';
  */
 
 export class PrestaShopError extends Error {
+  /** The exact URL the failing request went to, for diagnostics. */
+  readonly url?: string;
+
+  /** First few hundred characters of the response body, whitespace-collapsed. */
+  readonly bodySnippet?: string;
+
   constructor(
     message: string,
     readonly status?: number,
     readonly hint?: string,
+    extra: { url?: string; bodySnippet?: string } = {},
   ) {
     super(message);
     this.name = 'PrestaShopError';
+    this.url = extra.url;
+    this.bodySnippet = extra.bodySnippet;
   }
 }
 
@@ -52,6 +61,11 @@ export class PrestaShopClient {
   private readonly baseUrl: string;
   private readonly authHeader: string;
   private readonly timeoutMs: number;
+
+  /** The API root this client calls — shown verbatim in diagnostics. */
+  get apiRoot(): string {
+    return `${this.baseUrl}/api/`;
+  }
 
   constructor(config: PrestaShopConfig) {
     this.baseUrl = normaliseBaseUrl(config.baseUrl);
@@ -113,6 +127,7 @@ export class PrestaShopClient {
         `Shop returned a non-JSON response for "${resource}".`,
         undefined,
         'Check that the webservice key has view permission for this resource.',
+        { bodySnippet: snippet(body) },
       );
     }
 
@@ -179,12 +194,14 @@ export class PrestaShopClient {
           `The shop did not respond within ${this.timeoutMs / 1000}s.`,
           undefined,
           'The shop may be slow or unreachable. Try a smaller sync window.',
+          { url: url.toString() },
         );
       }
       throw new PrestaShopError(
         `Could not reach the shop: ${error instanceof Error ? error.message : 'unknown error'}`,
         undefined,
         'Check the shop URL and that the server is reachable from this application.',
+        { url: url.toString() },
       );
     } finally {
       clearTimeout(timeout);
@@ -193,11 +210,20 @@ export class PrestaShopClient {
     const body = await response.text();
 
     if (!response.ok) {
-      throw new PrestaShopError(describeHttpError(response.status, body), response.status, hintFor(response.status));
+      throw new PrestaShopError(describeHttpError(response.status, body), response.status, hintFor(response.status), {
+        url: url.toString(),
+        bodySnippet: snippet(body),
+      });
     }
 
     return { response, body };
   }
+}
+
+/** Collapses and truncates a response body so it is safe to show in a form. */
+function snippet(body: string): string {
+  const collapsed = body.replace(/\s+/g, ' ').trim();
+  return collapsed.length > 300 ? `${collapsed.slice(0, 300)}…` : collapsed;
 }
 
 function normaliseBaseUrl(rawUrl: string): string {

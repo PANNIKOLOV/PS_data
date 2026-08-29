@@ -157,6 +157,25 @@ describe('connection test', () => {
       },
     );
   });
+
+  it('carries the requested URL and response body for diagnostics', async () => {
+    await assert.rejects(
+      () => client('WRONGKEY').testConnection(),
+      (error: unknown) => {
+        assert.ok(error instanceof PrestaShopError);
+        assert.match(error.url ?? '', /\/api\/\?output_format=JSON$/);
+        assert.match(error.bodySnippet ?? '', /Invalid authentication key/);
+        return true;
+      },
+    );
+  });
+
+  it('exposes the API root it will call', () => {
+    assert.equal(
+      new PrestaShopClient({ baseUrl: 'https://shop.example.com/myshop', apiKey: API_KEY }).apiRoot,
+      'https://shop.example.com/myshop/api/',
+    );
+  });
 });
 
 describe('listing', () => {

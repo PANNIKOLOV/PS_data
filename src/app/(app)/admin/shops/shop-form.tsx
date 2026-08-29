@@ -2,9 +2,15 @@
 
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { AlertCircle, CheckCircle2, LoaderCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle2, LoaderCircle, PlugZap } from 'lucide-react';
 
-import { createShop, updateShop, type ActionState } from '@/app/(app)/admin/shops/actions';
+import {
+  createShop,
+  diagnoseShopConnection,
+  updateShop,
+  type ActionState,
+  type DiagnosisState,
+} from '@/app/(app)/admin/shops/actions';
 import { Button } from '@/components/ui/button';
 import { Field, Input, Select } from '@/components/ui/field';
 import type { Shop } from '@/lib/supabase/types';
@@ -51,10 +57,85 @@ function SubmitButton({ label }: { label: string }) {
   );
 }
 
+/**
+ * Submits the same form to the diagnostic action instead of save.
+ *
+ * `formNoValidate` lets a connection be tested from just the URL and key,
+ * before the rest of the form is filled in; the action checks those two
+ * itself. `useFormStatus` exposes which action a pending submission targets,
+ * so only the button that was pressed shows its spinner.
+ */
+function TestConnectionButton({ action }: { action: (formData: FormData) => void }) {
+  const status = useFormStatus();
+  const testing = status.pending && status.action === action;
+
+  return (
+    <Button type="submit" formAction={action} formNoValidate disabled={status.pending}>
+      {testing ? (
+        <>
+          <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
+          Testing…
+        </>
+      ) : (
+        <>
+          <PlugZap className="h-4 w-4" aria-hidden />
+          Test connection
+        </>
+      )}
+    </Button>
+  );
+}
+
+/** The raw facts of a connection attempt, shown exactly as observed. */
+function DiagnosisReport({ diagnosis }: { diagnosis: DiagnosisState }) {
+  if (!diagnosis.status) return null;
+
+  const isOk = diagnosis.status === 'ok';
+
+  return (
+    <div
+      role={isOk ? 'status' : 'alert'}
+      className={
+        isOk
+          ? 'space-y-2 rounded-lg bg-positive-soft px-3 py-2.5 text-xs text-positive'
+          : 'space-y-2 rounded-lg bg-negative-soft px-3 py-2.5 text-xs text-negative'
+      }
+    >
+      <p className="flex items-start gap-2 font-medium">
+        {isOk ? (
+          <CheckCircle2 className="mt-px h-4 w-4 shrink-0" aria-hidden />
+        ) : (
+          <AlertCircle className="mt-px h-4 w-4 shrink-0" aria-hidden />
+        )}
+        <span>{diagnosis.message}</span>
+      </p>
+      {diagnosis.hint ? <p className="pl-6">{diagnosis.hint}</p> : null}
+      {diagnosis.report ? (
+        <dl className="space-y-1.5 rounded-md bg-surface-card/60 p-2.5 text-content-secondary">
+          {diagnosis.report.map((row) => (
+            <div key={row.label}>
+              <dt className="text-[0.6875rem] font-medium tracking-wide text-content-muted uppercase">
+                {row.label}
+              </dt>
+              <dd className="mt-0.5 font-mono text-[0.6875rem] break-all text-content-primary">
+                {row.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+    </div>
+  );
+}
+
 export function ShopForm({ shop }: { shop?: Shop }) {
   const isEdit = Boolean(shop);
   const [state, formAction] = useActionState<ActionState, FormData>(
     isEdit ? updateShop : createShop,
+    {},
+  );
+  const [diagnosis, diagnoseAction] = useActionState<DiagnosisState, FormData>(
+    diagnoseShopConnection,
     {},
   );
 
@@ -188,8 +269,11 @@ export function ShopForm({ shop }: { shop?: Shop }) {
         </label>
       ) : null}
 
-      <div className="flex gap-2 border-t border-border-subtle pt-4">
+      <DiagnosisReport diagnosis={diagnosis} />
+
+      <div className="flex flex-wrap gap-2 border-t border-border-subtle pt-4">
         <SubmitButton label={isEdit ? 'Save changes' : 'Connect shop'} />
+        <TestConnectionButton action={diagnoseAction} />
       </div>
     </form>
   );
