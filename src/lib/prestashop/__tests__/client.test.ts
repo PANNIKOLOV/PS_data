@@ -49,9 +49,22 @@ function startStub(): Promise<Server> {
     const headers = { 'Content-Type': 'application/json', 'PSWS-Version': '8.1.6' };
 
     if (url.pathname === '/api/' || url.pathname === '/api') {
-      response.writeHead(200, headers);
+      // PrestaShop 8 and later return 500 for a JSON root request, while the
+      // XML root works. See PrestaShop/PrestaShop discussion #33121.
+      if (url.searchParams.get('output_format') === 'JSON') {
+        response.writeHead(500, { 'Content-Type': 'text/html' });
+        response.end('<html><head><title>500 Internal Server Error</title></head></html>');
+        return;
+      }
+      response.writeHead(200, { 'Content-Type': 'text/xml', 'PSWS-Version': '8.1.6' });
       response.end(
-        JSON.stringify({ orders: {}, customers: {}, order_states: {}, currencies: {}, shops: {} }),
+        '<?xml version="1.0" encoding="UTF-8"?><prestashop xmlns:xlink="http://www.w3.org/1999/xlink">' +
+          '<api shop_name="demo">' +
+          '<orders xlink:href="http://x/api/orders" get="true"/>' +
+          '<customers xlink:href="http://x/api/customers" get="true"/>' +
+          '<order_states xlink:href="http://x/api/order_states" get="true"/>' +
+          '<currencies xlink:href="http://x/api/currencies" get="true"/>' +
+          '</api></prestashop>',
       );
       return;
     }
@@ -163,11 +176,23 @@ describe('connection test', () => {
       () => client('WRONGKEY').testConnection(),
       (error: unknown) => {
         assert.ok(error instanceof PrestaShopError);
-        assert.match(error.url ?? '', /\/api\/\?output_format=JSON$/);
+        // The root is requested as XML, so no output_format is sent.
+        assert.match(error.url ?? '', /\/api\/$/);
         assert.match(error.bodySnippet ?? '', /Invalid authentication key/);
         return true;
       },
     );
+  });
+
+  it('does not ask for JSON on the API root', async () => {
+    // PrestaShop 8+ answers a JSON root request with a 500 while serving the
+    // XML root fine; the stub reproduces that, so a JSON root here would throw.
+    requestLog = [];
+    const result = await client().testConnection();
+
+    assert.ok(!requestLog[0]!.path.includes('output_format'), 'root must not request JSON');
+    assert.equal(result.version, '8.1.6');
+    assert.deepEqual(result.resources, ['orders', 'customers', 'order_states', 'currencies']);
   });
 
   it('exposes the API root it will call', () => {

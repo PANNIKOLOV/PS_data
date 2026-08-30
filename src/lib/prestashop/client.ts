@@ -82,16 +82,29 @@ export class PrestaShopClient {
    * needing permissions on any particular resource.
    */
   async testConnection(): Promise<{ version: string | null; resources: string[] }> {
-    const { response, body } = await this.request('/api/', { output_format: 'JSON' });
+    /*
+     * Deliberately XML, by omitting output_format.
+     *
+     * PrestaShop 8 and later answer a JSON request to the API *root* with a
+     * 500, while the same shop serves individual resources as JSON perfectly
+     * well and serves the XML root without complaint. Asking for JSON here
+     * therefore reports a broken shop when nothing is wrong with it.
+     * See PrestaShop/PrestaShop discussion #33121.
+     */
+    const { response, body } = await this.request('/api/', {});
 
     const version = response.headers.get('psws-version');
-    let resources: string[] = [];
-    try {
-      const parsed = JSON.parse(body) as Record<string, unknown>;
-      resources = Object.keys(parsed);
-    } catch {
-      // Some shops answer the API root with XML regardless of output_format.
-      resources = [...body.matchAll(/<(\w+)\s+xlink:href/g)].map((match) => match[1] ?? '');
+
+    // The XML root lists each resource the key may reach as an xlink element.
+    let resources = [...body.matchAll(/<(\w+)\s+xlink:href/g)].map((match) => match[1] ?? '');
+
+    if (resources.length === 0) {
+      // A shop configured to answer JSON regardless still describes itself.
+      try {
+        resources = Object.keys(JSON.parse(body) as Record<string, unknown>);
+      } catch {
+        resources = [];
+      }
     }
 
     return { version, resources: resources.filter(Boolean) };

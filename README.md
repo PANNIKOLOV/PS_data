@@ -537,6 +537,13 @@ truncate.
 **"Not found (404)"** — the webservice is disabled, or URL rewriting is off.
 Enable both in the shop back office.
 
+**"The shop responded with HTTP 500" on connecting** — PrestaShop 8 and later
+answer a JSON request to the API *root* with a 500, while serving individual
+resources as JSON perfectly well ([PrestaShop discussion #33121](https://github.com/PrestaShop/PrestaShop/discussions/33121)).
+The connection test requests the root as XML for that reason, so a current
+checkout is unaffected. A 500 on a current build is a genuine shop-side error —
+check the shop's PHP error log.
+
 **"Shop returned a non-JSON response"** — usually a maintenance page, a security
 module, or a WAF between the application and the shop. Try the same URL with
 `?output_format=JSON` in a browser while authenticated.
