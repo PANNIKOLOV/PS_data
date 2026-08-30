@@ -51,7 +51,7 @@ export default async function DashboardPage({
               permissions.role === 'admin' ? (
                 <Link
                   href="/admin/shops/new"
-                  className="inline-flex h-9 items-center rounded-lg bg-accent px-3.5 text-xs font-medium text-white hover:bg-accent-hover"
+                  className="inline-flex h-9 items-center rounded-lg bg-accent px-3.5 text-xs font-medium text-accent-foreground hover:bg-accent-hover"
                 >
                   Connect a shop
                 </Link>

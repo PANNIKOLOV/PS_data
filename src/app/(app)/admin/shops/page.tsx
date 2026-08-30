@@ -32,7 +32,7 @@ export default async function AdminShopsPage() {
         actions={
           <Link
             href="/admin/shops/new"
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-xs font-medium text-accent-foreground transition-colors hover:bg-accent-hover"
           >
             <Plus className="h-3.5 w-3.5" aria-hidden />
             Connect shop
@@ -49,7 +49,7 @@ export default async function AdminShopsPage() {
             action={
               <Link
                 href="/admin/shops/new"
-                className="inline-flex h-9 items-center rounded-lg bg-accent px-3.5 text-xs font-medium text-white hover:bg-accent-hover"
+                className="inline-flex h-9 items-center rounded-lg bg-accent px-3.5 text-xs font-medium text-accent-foreground hover:bg-accent-hover"
               >
                 Connect a shop
               </Link>

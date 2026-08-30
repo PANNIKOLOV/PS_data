@@ -38,6 +38,11 @@
 
 /* Semantic surface roles, redefined wholesale for the dark theme. */
 :root {
+  /* Native controls — select popups, scrollbars, autofill — are painted by the
+     browser, not by these tokens. Without color-scheme they stay light in the
+     dark theme, which is where the unreadable dark-on-dark text came from. */
+  color-scheme: light;
+
   --surface-page: oklch(0.985 0.002 250);
   --surface-card: oklch(1 0 0);
   --surface-raised: oklch(0.97 0.003 250);
@@ -49,19 +54,22 @@
 
   --text-primary: oklch(0.22 0.015 260);
   --text-secondary: oklch(0.46 0.012 258);
-  --text-muted: oklch(0.6 0.01 258);
+  --text-muted: oklch(0.53 0.012 258);
   --text-inverted: oklch(0.99 0 0);
 
   --accent: var(--color-brand-600);
   --accent-hover: var(--color-brand-700);
+  /* Text that sits on top of --accent. Follows the accent's lightness, not the
+     theme's: the dark theme uses a light accent, where white would not read. */
+  --accent-foreground: oklch(1 0 0);
   --accent-soft: oklch(0.95 0.025 262);
   --accent-text: var(--color-brand-700);
 
-  --positive: oklch(0.55 0.15 150);
+  --positive: oklch(0.48 0.14 150);
   --positive-soft: oklch(0.95 0.04 150);
   --negative: oklch(0.55 0.19 25);
   --negative-soft: oklch(0.96 0.03 25);
-  --warning: oklch(0.68 0.15 75);
+  --warning: oklch(0.5 0.12 75);
   --warning-soft: oklch(0.96 0.05 85);
 
   --grid-line: oklch(0.92 0.004 250);
@@ -71,6 +79,8 @@
 }
 
 .dark {
+  color-scheme: dark;
+
   --surface-page: oklch(0.17 0.012 260);
   --surface-card: oklch(0.21 0.014 260);
   --surface-raised: oklch(0.25 0.016 260);
@@ -82,11 +92,12 @@
 
   --text-primary: oklch(0.96 0.004 250);
   --text-secondary: oklch(0.75 0.012 255);
-  --text-muted: oklch(0.6 0.014 258);
+  --text-muted: oklch(0.65 0.014 258);
   --text-inverted: oklch(0.17 0.012 260);
 
   --accent: var(--color-brand-400);
   --accent-hover: var(--color-brand-300);
+  --accent-foreground: oklch(0.17 0.012 260);
   --accent-soft: oklch(0.3 0.06 262);
   --accent-text: var(--color-brand-300);
 
@@ -122,6 +133,7 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-foreground: var(--accent-foreground);
   --color-accent-text: var(--accent-text);
 
   --color-positive: var(--positive);

@@ -51,7 +51,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
     <div className="min-h-dvh">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-accent focus:px-3 focus:py-2 focus:text-sm focus:text-white"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-accent focus:px-3 focus:py-2 focus:text-sm focus:text-accent-foreground"
       >
         Skip to content
       </a>
@@ -75,7 +75,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
       >
         <div className="flex h-14 items-center justify-between border-b border-border-subtle px-4">
           <Link href="/dashboard" className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-white">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-accent-foreground">
               <BarChart3 className="h-4 w-4" aria-hidden />
             </span>
             <span className="text-sm font-semibold tracking-tight text-content-primary">PS Data</span>

@@ -251,6 +251,73 @@ export async function fetchCustomerMix(
   }));
 }
 
+export interface RecentOrder {
+  id: number;
+  reference: string | null;
+  dateAdd: string;
+  stateName: string | null;
+  stateColor: string | null;
+  paymentMethod: string | null;
+  isValid: boolean;
+  totalBase: number;
+}
+
+/**
+ * The most recent orders in a period, for the shop's activity table.
+ *
+ * A plain select rather than an RPC: Row Level Security already confines
+ * ps_orders to shops the caller may see, so no extra scoping is needed here.
+ * Status names come from a second query because ps_order_states is keyed by
+ * (shop_id, ps_state_id) and has no foreign key for PostgREST to embed.
+ */
+export async function fetchRecentOrders(
+  shopId: string,
+  range: DateRange,
+  onlyValid: boolean,
+  limit = 25,
+): Promise<RecentOrder[]> {
+  const supabase = await createClient();
+
+  let query = supabase
+    .from('ps_orders')
+    .select(
+      'id, reference, date_add, current_state, payment_method, is_valid, total_paid_base',
+    )
+    .eq('shop_id', shopId)
+    .gte('date_add', range.from.toISOString())
+    .lt('date_add', range.to.toISOString())
+    .order('date_add', { ascending: false })
+    .limit(limit);
+
+  if (onlyValid) query = query.eq('is_valid', true);
+
+  const [{ data: orders, error }, { data: states }] = await Promise.all([
+    query,
+    supabase
+      .from('ps_order_states')
+      .select('ps_state_id, name, color')
+      .eq('shop_id', shopId),
+  ]);
+
+  if (error || !orders) return [];
+
+  const stateById = new Map((states ?? []).map((state) => [state.ps_state_id, state]));
+
+  return orders.map((order) => {
+    const state = order.current_state === null ? undefined : stateById.get(order.current_state);
+    return {
+      id: order.id,
+      reference: order.reference,
+      dateAdd: order.date_add,
+      stateName: state?.name ?? null,
+      stateColor: state?.color ?? null,
+      paymentMethod: order.payment_method,
+      isValid: order.is_valid,
+      totalBase: Number(order.total_paid_base ?? 0),
+    };
+  });
+}
+
 export async function fetchShopTotals(
   shopIds: readonly string[],
   range: DateRange,

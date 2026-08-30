@@ -16,7 +16,7 @@ export default async function LoginPage({
     <main className="flex min-h-dvh items-center justify-center bg-surface-page px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-7 flex flex-col items-center text-center">
-          <div className="mb-3.5 flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-white">
+          <div className="mb-3.5 flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-accent-foreground">
             <BarChart3 className="h-5.5 w-5.5" aria-hidden />
           </div>
           <h1 className="text-xl font-semibold tracking-tight text-content-primary">PS Data</h1>
