@@ -208,7 +208,9 @@ export async function createShop(_prev: ActionState, formData: FormData): Promis
     .single();
 
   if (insertError || !shop) {
-    return { error: `The shop could not be saved: ${insertError?.message ?? 'unknown error'}` };
+    return {
+      error: `The shop could not be saved: ${describeDatabaseError(insertError?.message ?? 'unknown error')}`,
+    };
   }
 
   const { error: credentialError } = await supabase.from('shop_credentials').insert({
@@ -220,7 +222,9 @@ export async function createShop(_prev: ActionState, formData: FormData): Promis
   if (credentialError) {
     // Without a key the shop can never sync, so do not leave a dead record behind.
     await supabase.from('shops').delete().eq('id', shop.id);
-    return { error: `The webservice key could not be stored: ${credentialError.message}` };
+    return {
+      error: `The webservice key could not be stored: ${describeDatabaseError(credentialError.message)}`,
+    };
   }
 
   revalidatePath('/admin/shops');
@@ -384,6 +388,20 @@ export async function deleteShop(_prev: ActionState, formData: FormData): Promis
   revalidatePath('/admin/shops');
   revalidatePath('/shops');
   redirect('/admin/shops?deleted=1');
+}
+
+/**
+ * Rewrites a Supabase failure so it cannot be mistaken for a PrestaShop one.
+ *
+ * Supabase answers a bad service-role key with "Invalid API key", which lands
+ * in a form where the user has just typed a PrestaShop webservice key and
+ * reads as a verdict on that.
+ */
+function describeDatabaseError(message: string): string {
+  if (/invalid api key|jwt|not authorized|permission denied/i.test(message)) {
+    return `The application could not authenticate with its own database (Supabase said: "${message}"). This is not about the shop's webservice key — check SUPABASE_SERVICE_ROLE_KEY in the server's environment, then restart the app.`;
+  }
+  return message;
 }
 
 function describeConnectionError(error: unknown): string {

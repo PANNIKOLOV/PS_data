@@ -95,8 +95,11 @@ export class PrestaShopClient {
 
     const version = response.headers.get('psws-version');
 
-    // The XML root lists each resource the key may reach as an xlink element.
-    let resources = [...body.matchAll(/<(\w+)\s+xlink:href/g)].map((match) => match[1] ?? '');
+    // The XML root lists each resource as a child of <api>, but those children
+    // carry <description> and <schema> elements that also have an xlink:href.
+    // Matching every xlink-bearing tag would report them as resources, so the
+    // nested ones are stripped before the top-level names are read.
+    let resources = uniqueResourceNames(body);
 
     if (resources.length === 0) {
       // A shop configured to answer JSON regardless still describes itself.
@@ -231,6 +234,23 @@ export class PrestaShopClient {
 
     return { response, body };
   }
+}
+
+/** Resource names from the webservice's XML root listing, in order, deduplicated. */
+function uniqueResourceNames(body: string): string[] {
+  const apiBlock = body.match(/<api\b[^>]*>([\s\S]*)<\/api>/)?.[1] ?? body;
+
+  const withoutNested = apiBlock
+    .replace(/<description\b[\s\S]*?<\/description>/g, '')
+    .replace(/<description\b[^>]*\/>/g, '')
+    .replace(/<schema\b[^>]*\/>/g, '')
+    .replace(/<schema\b[\s\S]*?<\/schema>/g, '');
+
+  const names = [...withoutNested.matchAll(/<(\w+)\s[^>]*xlink:href/g)].map(
+    (match) => match[1] ?? '',
+  );
+
+  return [...new Set(names.filter(Boolean))];
 }
 
 /** Collapses and truncates a response body so it is safe to show in a form. */

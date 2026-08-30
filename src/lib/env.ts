@@ -15,7 +15,19 @@ const publicSchema = z.object({
 });
 
 const serverSchema = z.object({
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1, 'SUPABASE_SERVICE_ROLE_KEY is required'),
+  /*
+   * Either a legacy JWT (eyJ…) or a modern secret key (sb_secret_…). Checking
+   * the shape catches an unreplaced placeholder here, rather than letting it
+   * through to fail on first use as Supabase's "Invalid API key" — which reads
+   * as though it were about the PrestaShop key being entered at the time.
+   */
+  SUPABASE_SERVICE_ROLE_KEY: z
+    .string()
+    .min(1, 'SUPABASE_SERVICE_ROLE_KEY is required')
+    .refine(
+      (value) => value.startsWith('eyJ') || value.startsWith('sb_secret_'),
+      'SUPABASE_SERVICE_ROLE_KEY does not look like a Supabase secret key. Copy the service_role key from Project Settings → API Keys (it starts with "eyJ" or "sb_secret_").',
+    ),
   /** 32-byte key, base64 encoded, used to encrypt PrestaShop webservice keys. */
   CREDENTIALS_ENCRYPTION_KEY: z
     .string()

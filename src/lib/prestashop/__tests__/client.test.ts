@@ -60,8 +60,16 @@ function startStub(): Promise<Server> {
       response.end(
         '<?xml version="1.0" encoding="UTF-8"?><prestashop xmlns:xlink="http://www.w3.org/1999/xlink">' +
           '<api shop_name="demo">' +
-          '<orders xlink:href="http://x/api/orders" get="true"/>' +
-          '<customers xlink:href="http://x/api/customers" get="true"/>' +
+          // Real shops nest description/schema children that also carry xlink:href.
+          '<orders xlink:href="http://x/api/orders" get="true">' +
+          '<description xlink:href="http://x/api/orders" get="true">Orders</description>' +
+          '<schema xlink:href="http://x/api/orders?schema=blank" type="blank"/>' +
+          '<schema xlink:href="http://x/api/orders?schema=synopsis" type="synopsis"/>' +
+          '</orders>' +
+          '<customers xlink:href="http://x/api/customers" get="true">' +
+          '<description xlink:href="http://x/api/customers" get="true">Customers</description>' +
+          '<schema xlink:href="http://x/api/customers?schema=blank" type="blank"/>' +
+          '</customers>' +
           '<order_states xlink:href="http://x/api/order_states" get="true"/>' +
           '<currencies xlink:href="http://x/api/currencies" get="true"/>' +
           '</api></prestashop>',
