@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardBody } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/states';
 import { createClient } from '@/lib/supabase/server';
+import { describeCadence, nextSyncDueAt } from '@/lib/sync-schedule';
 import { formatRelativeTime } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Manage shops' };
@@ -59,7 +60,7 @@ export default async function AdminShopsPage() {
           <CardBody className="p-0 sm:p-0">
             {/* The table scrolls horizontally rather than the page body. */}
             <div className="scroll-x">
-              <table className="w-full min-w-[46rem] text-sm">
+              <table className="w-full min-w-[54rem] text-sm">
                 <thead>
                   <tr className="border-b border-border-subtle text-left">
                     <th scope="col" className="px-5 py-3 text-xs font-medium text-content-muted">
@@ -70,6 +71,9 @@ export default async function AdminShopsPage() {
                     </th>
                     <th scope="col" className="px-4 py-3 text-xs font-medium text-content-muted">
                       Assigned to
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-xs font-medium text-content-muted">
+                      Schedule
                     </th>
                     <th scope="col" className="px-4 py-3 text-xs font-medium text-content-muted">
                       Last sync
@@ -85,6 +89,7 @@ export default async function AdminShopsPage() {
                 <tbody className="divide-y divide-border-subtle">
                   {(shops ?? []).map((shop) => {
                     const assigned = assignmentCounts.get(shop.id) ?? 0;
+                    const nextSync = nextSyncDueAt(shop);
 
                     return (
                       <tr key={shop.id} className="transition-colors hover:bg-surface-hover">
@@ -103,6 +108,14 @@ export default async function AdminShopsPage() {
                           ) : (
                             `${assigned} ${assigned === 1 ? 'marketer' : 'marketers'}`
                           )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-content-secondary">
+                          <p>{describeCadence(shop.sync_interval_minutes)}</p>
+                          <p className="text-content-muted">
+                            {nextSync
+                              ? `next ${formatRelativeTime(nextSync)}`
+                              : `${shop.manual_sync_daily_limit}/day by hand`}
+                          </p>
                         </td>
                         <td className="px-4 py-3 text-xs text-content-secondary">
                           {formatRelativeTime(shop.last_sync_at)}

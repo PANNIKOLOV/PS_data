@@ -32,6 +32,12 @@ export interface SyncOptions {
   since?: Date;
   triggerSource?: 'manual' | 'scheduled' | 'initial';
   triggeredBy?: string | null;
+  /**
+   * An already-recorded sync_runs row to report against, from
+   * `claim_manual_sync`. The rate limit counts those rows, so a marketer's run
+   * must reuse the row that was counted rather than insert a second one.
+   */
+  runId?: string;
 }
 
 export interface SyncResult {
@@ -72,21 +78,14 @@ export async function syncShop(shopId: string, options: SyncOptions = {}): Promi
     throw new Error(`Shop ${shopId} was not found.`);
   }
 
-  const { data: run } = await supabase
-    .from('sync_runs')
-    .insert({
-      shop_id: shopId,
-      status: 'running',
-      trigger_source: options.triggerSource ?? 'manual',
-      triggered_by: options.triggeredBy ?? null,
-    })
-    .select('id')
-    .single();
+  // A run reserved by claim_manual_sync is already recorded; anything else
+  // opens its own row here.
+  const runId = options.runId ?? (await startRun(shopId, options));
 
   const finish = async (result: Omit<SyncResult, 'shopId' | 'durationMs'>): Promise<SyncResult> => {
     const durationMs = Date.now() - startedAt;
 
-    if (run) {
+    if (runId) {
       await supabase
         .from('sync_runs')
         .update({
@@ -97,7 +96,7 @@ export async function syncShop(shopId: string, options: SyncOptions = {}): Promi
           finished_at: new Date().toISOString(),
           duration_ms: durationMs,
         })
-        .eq('id', run.id);
+        .eq('id', runId);
     }
 
     await supabase
@@ -156,6 +155,25 @@ export async function syncShop(shopId: string, options: SyncOptions = {}): Promi
       warnings,
     });
   }
+}
+
+/** Opens a sync_runs row, or returns null if the audit write fails. */
+async function startRun(shopId: string, options: SyncOptions): Promise<string | null> {
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from('sync_runs')
+    .insert({
+      shop_id: shopId,
+      status: 'running',
+      trigger_source: options.triggerSource ?? 'manual',
+      triggered_by: options.triggeredBy ?? null,
+    })
+    .select('id')
+    .single();
+
+  // A missing audit row must not stop the sync; the shop's own last_sync_*
+  // columns are still updated when it finishes.
+  return data?.id ?? null;
 }
 
 /** Builds an authenticated client from a shop's stored, encrypted key. */

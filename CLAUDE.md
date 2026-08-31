@@ -32,6 +32,14 @@ not assigned. Do not switch them to SECURITY DEFINER.
 **Never read a role from user-supplied metadata.** `raw_user_meta_data` is
 attacker-controlled at sign-up. Roles are set only by an existing admin.
 
+**The marketer sync cap is a database rule, not a UI one.** `claim_manual_sync()`
+counts and records in one transaction under an advisory lock, so two clicks
+cannot both slip past a count of four. The sync engine runs with the service
+role and bypasses RLS, so moving the check into a server action would leave
+nothing behind it. A caller that gets a run id from the claim must pass it to
+`syncShop({ runId })`: inserting a second `sync_runs` row would leave the row
+the cap counted unfinished, and the run unaccounted for.
+
 **Every server action re-checks the caller.** A server action is a POST
 endpoint; the layout that rendered its form does not protect it. Start each one
 with `requireAdmin()` or `requireUser()`.
@@ -41,11 +49,15 @@ the only fields ever requested from PrestaShop, and `display=full` is never
 used. Adding a field there is a privacy decision, and a test enforces it.
 
 **PrestaShop timestamps are naive local time.** They carry no UTC offset, so
-they must be parsed against the shop's configured timezone. Period boundaries
-and chart buckets use that same timezone, not the viewer's.
+they must be parsed against the shop's configured timezone. Period boundaries,
+chart buckets and the daily sync allowance all use that same timezone, not the
+viewer's and not UTC — `public.shop_day_start()` is the one place that decides
+where a shop's day begins.
 
-**Migrations are applied in filename order** and the grants file runs last,
-because it references the analytics functions.
+**Migrations are applied in filename order.** The grants file must run after the
+analytics functions it references, and the hardening file after the grants it
+corrects. Add new work in a new numbered file rather than editing an applied
+one — the live project has already run them.
 
 ## Environment
 

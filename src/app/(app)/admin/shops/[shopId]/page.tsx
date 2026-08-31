@@ -85,7 +85,11 @@ export default async function AdminShopDetailPage({
           <CardHeader title="Connection" description="Verify the shop is reachable and import data" />
           <CardBody className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             <ConnectionTester shopId={shop.id} />
-            <SyncControls shopId={shop.id} />
+            <SyncControls
+              shopId={shop.id}
+              intervalMinutes={shop.sync_interval_minutes}
+              manualLimit={shop.manual_sync_daily_limit}
+            />
           </CardBody>
         </Card>
 

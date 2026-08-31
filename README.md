@@ -25,7 +25,7 @@ transit the network or reach the database.
   - [4. Create the first administrator](#4-create-the-first-administrator)
   - [5. Prepare the PrestaShop webservice](#5-prepare-the-prestashop-webservice)
   - [6. Connect a shop](#6-connect-a-shop)
-- [Scheduled synchronisation](#scheduled-synchronisation)
+- [Synchronisation](#synchronisation)
 - [How it works](#how-it-works)
 - [Privacy](#privacy)
 - [Development](#development)
@@ -63,12 +63,15 @@ yesterday in the shop's terms, not the viewer's.
 
 ## Roles and permissions
 
-**Admin** — connects and configures shops, manages users, triggers syncs, and
+**Admin** — connects and configures shops, sets each shop's sync schedule and
+its marketer refresh allowance, manages users, triggers syncs without limit, and
 sees every figure for every shop.
 
 **Marketer** — sees only the shops an admin has assigned, and within each shop
 only the metrics that admin ticked. A marketer assigned Shop A with revenue and
-orders enabled sees exactly that: no Shop B, and no payment breakdown.
+orders enabled sees exactly that: no Shop B, and no payment breakdown. They can
+refresh an assigned shop on demand, up to the daily allowance the admin set for
+it.
 
 Permissions are enforced in the database by Row Level Security, not merely
 hidden in the interface. A marketer who crafts a request naming a shop they were
@@ -172,31 +175,66 @@ The connection is tested before anything is saved, so a shop is never stored in
 a state that cannot sync. Then:
 
 1. Open the shop and run **Full resync** to import its order history.
-2. Go to **Users & access**, assign the shop to a marketer, and tick the figures
+2. Under **Settings**, choose how often it should sync on its own and how many
+   times a day a marketer may refresh it by hand.
+3. Go to **Users & access**, assign the shop to a marketer, and tick the figures
    they should see.
 
 The **shop timezone must match the shop's own setting**. PrestaShop stores dates
 without a UTC offset, so a mismatch shifts every figure by the difference.
 
-## Scheduled synchronisation
+## Synchronisation
 
-`POST /api/cron/sync` syncs every active shop incrementally. Set
-`SYNC_CRON_SECRET` (`openssl rand -hex 32`) to enable it; while it is unset the
-endpoint stays closed rather than open.
+### Per-shop schedule
+
+Each shop carries its own cadence, set by an admin under **Manage shops → the
+shop → Settings**: hourly, every 3, 6 or 12 hours, daily, weekly, or manual
+only. The same panel sets how many times a day a marketer may refresh that shop
+by hand — five by default, and `Not allowed` turns marketer refreshes off.
+
+### The scheduled runner
+
+`POST /api/cron/sync` syncs the shops that are **due**. Set `SYNC_CRON_SECRET`
+(`openssl rand -hex 32`) to enable it; while it is unset the endpoint stays
+closed rather than open.
 
 ```bash
 curl -X POST https://your-app.example.com/api/cron/sync \
      -H "Authorization: Bearer $SYNC_CRON_SECRET"
 ```
 
+Point the schedule at **every fifteen minutes**, not at the cadence you want.
+A shop whose interval has not yet elapsed is skipped, so a frequent tick costs
+one query — and that is what lets one cron entry serve an hourly shop and a
+weekly one at the same time.
+
 On Vercel, add to `vercel.json`:
 
 ```json
-{ "crons": [{ "path": "/api/cron/sync", "schedule": "0 */6 * * *" }] }
+{ "crons": [{ "path": "/api/cron/sync", "schedule": "*/15 * * * *" }] }
 ```
 
 Each run re-reads a one-hour overlap so records modified during the previous run
 are not missed, and one unreachable shop does not abandon the rest of the run.
+
+### Sync now
+
+Every shop page has a **Sync now** button. For a marketer it is capped at the
+shop's daily allowance, counted per marketer, per shop, and reset at **midnight
+in the shop's timezone** — the button shows how many are left. Admins are never
+capped.
+
+The cap is enforced in the database, by `claim_manual_sync()`, not in the
+interface. That matters because the sync engine runs with the service role and
+bypasses Row Level Security: a check made only in the server action would be
+the only thing standing between a marketer and unlimited requests against the
+shop's server. The same function refuses a second sync while one is already
+running, so two clicks cannot hit a shop at once, and a marketer cannot delete
+their own run history to win the allowance back. All of this is covered by the
+[SQL regression suite](supabase/tests/rls_and_analytics_test.sql).
+
+Every attempt counts against the allowance, including one that fails — an
+unreachable shop is exactly the case where retrying in a loop does most harm.
 
 ## How it works
 
@@ -403,8 +441,11 @@ changing it**.
 Add a cPanel **Cron Job** (every six hours shown here):
 
 ```
-0 */6 * * * curl -s -X POST https://your-domain.example/api/cron/sync -H "Authorization: Bearer YOUR_SYNC_CRON_SECRET" >/dev/null 2>&1
+*/15 * * * * curl -s -X POST https://your-domain.example/api/cron/sync -H "Authorization: Bearer YOUR_SYNC_CRON_SECRET" >/dev/null 2>&1
 ```
+
+Run it every fifteen minutes and let each shop's own interval decide when it
+actually syncs — see [Synchronisation](#synchronisation).
 
 #### If the build dies after "Compiled successfully"
 

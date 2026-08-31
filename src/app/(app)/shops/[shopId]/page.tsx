@@ -28,6 +28,9 @@ import {
 import { concentration, periodShape, weekdayPerformance } from '@/lib/analytics/insights';
 import { parseDashboardParams, type RawSearchParams } from '@/lib/analytics/search-params';
 import { canViewMetric } from '@/lib/permissions';
+import { describeCadence, nextSyncDueAt } from '@/lib/sync-schedule';
+import { fetchManualSyncQuota } from '@/lib/sync-status';
+import { SyncNowBar } from '@/app/(app)/shops/sync-now';
 import { formatCurrency, formatNumber, formatRelativeTime } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Shop analytics' };
@@ -67,6 +70,7 @@ export default async function ShopDetailPage({
     paymentRows,
     mixRows,
     recentOrders,
+    syncQuota,
   ] = await Promise.all([
     fetchSummary(scope, view.period, view.onlyValid),
     fetchSummary(scope, view.period.previous, view.onlyValid),
@@ -96,6 +100,7 @@ export default async function ShopDetailPage({
     fetchPaymentBreakdown(permissions, scope, view.period, view.onlyValid),
     fetchCustomerMix(permissions, scope, view.period, view.onlyValid),
     can('orders') ? fetchRecentOrders(shop.id, view.period, view.onlyValid) : Promise.resolve([]),
+    fetchManualSyncQuota(shop.id),
   ]);
 
   const weekdays = weekdayPerformance(dailySeries, shop.timezone);
@@ -103,6 +108,7 @@ export default async function ShopDetailPage({
   const paymentConcentration = concentration(paymentRows.map((row) => row.revenue));
 
   const currency = shop.currency_code;
+  const nextSync = nextSyncDueAt(shop);
 
   return (
     <>
@@ -116,7 +122,7 @@ export default async function ShopDetailPage({
 
       <PageHeader
         title={shop.name}
-        description={`${view.period.label} · ${shop.timezone} · synced ${formatRelativeTime(shop.last_sync_at)}`}
+        description={`${view.period.label} · times shown in ${shop.timezone}`}
         actions={
           <>
             <PeriodFilter
@@ -140,6 +146,14 @@ export default async function ShopDetailPage({
             ) : null}
           </>
         }
+      />
+
+      <SyncNowBar
+        shopId={shop.id}
+        quota={syncQuota}
+        timezone={shop.timezone}
+        lastSyncAt={shop.last_sync_at}
+        intervalMinutes={shop.sync_interval_minutes}
       />
 
       <section
@@ -358,7 +372,7 @@ export default async function ShopDetailPage({
       <Card className="mt-4">
         <CardHeader title="Shop details" />
         <CardBody>
-          <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3 xl:grid-cols-6">
             <div>
               <dt className="text-xs text-content-muted">PrestaShop version</dt>
               <dd className="mt-1 font-medium text-content-primary">
@@ -381,6 +395,18 @@ export default async function ShopDetailPage({
               <dt className="text-xs text-content-muted">Unique buyers</dt>
               <dd className="tabular mt-1 font-medium text-content-primary">
                 {formatNumber(current.uniqueCustomers)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-content-muted">Automatic sync</dt>
+              <dd className="mt-1 font-medium text-content-primary">
+                {describeCadence(shop.sync_interval_minutes)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-content-muted">Next scheduled</dt>
+              <dd className="mt-1 font-medium text-content-primary">
+                {nextSync ? formatRelativeTime(nextSync) : 'Manual only'}
               </dd>
             </div>
           </dl>

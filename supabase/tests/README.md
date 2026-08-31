@@ -53,6 +53,15 @@ of empty buckets; the paid-orders-only filter; timezone bucketing, including an
 order that falls on a different local day than its UTC day; fallback to UTC for
 an invalid timezone; status, payment and first-time/returning breakdowns.
 
+**The marketer sync cap** — the other important one. `claim_manual_sync` allows
+the shop's daily allowance and refuses the next; refuses a second run while one
+is in flight; refuses a paused shop, a shop with no allowance, and a shop the
+caller was not assigned; and does not cap admins. The allowance window is the
+shop's own day, so a run one minute before local midnight belongs to yesterday
+even when the UTC date has not changed, and scheduled runs never count against a
+marketer. The routes around it are asserted too: a marketer can neither insert
+sync history, delete it to win the allowance back, nor raise the shop's limit.
+
 ## Adding a test
 
 Add assertions with the `pg_temp.check_eq` helper inside a `do $$ … $$` block:

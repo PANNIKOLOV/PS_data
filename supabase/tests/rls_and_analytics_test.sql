@@ -280,4 +280,315 @@ begin
 end $$;
 reset role;
 
+-- =============================================================================
+-- Sync scheduling and the marketer daily cap
+--
+-- The cap is the only thing limiting how hard a marketer can make the platform
+-- hit a shop's server, and the sync engine itself runs with the service role
+-- and bypasses RLS. So it is asserted here rather than trusted to the interface.
+-- =============================================================================
+
+-- Shop C allows no manual syncing; shop D is paused. Both are assigned to the
+-- marketer, so the refusals below are about the setting, not about access.
+insert into public.shops (id, name, base_url, currency_code, timezone,
+                          manual_sync_daily_limit, is_active) values
+  ('cccccccc-0000-0000-0000-000000000003', 'Shop C', 'https://c.example.com', 'EUR', 'UTC', 0, true),
+  ('dddddddd-0000-0000-0000-000000000004', 'Shop D', 'https://d.example.com', 'EUR', 'UTC', 5, false);
+
+insert into public.shop_assignments (shop_id, user_id) values
+  ('cccccccc-0000-0000-0000-000000000003', '22222222-2222-2222-2222-222222222222'),
+  ('dddddddd-0000-0000-0000-000000000004', '22222222-2222-2222-2222-222222222222');
+
+-- --- day boundaries ----------------------------------------------------------
+do $$
+begin
+  -- 10:00 UTC on 31 August is 13:00 in Athens, so the Athens day began at
+  -- 21:00 UTC on the 30th. Reading the window in UTC would reset a Greek
+  -- shop's allowance in the middle of its afternoon.
+  perform pg_temp.check_eq('a shop day starts at local midnight',
+    public.shop_day_start('Europe/Athens', '2026-08-31T10:00:00Z'),
+    '2026-08-30T21:00:00Z'::timestamptz);
+
+  perform pg_temp.check_eq('a UTC shop day starts at UTC midnight',
+    public.shop_day_start('UTC', '2026-08-31T10:00:00Z'),
+    '2026-08-31T00:00:00Z'::timestamptz);
+
+  perform pg_temp.check_eq('an unknown timezone falls back to UTC',
+    public.shop_day_start('Not/AZone', '2026-08-31T10:00:00Z'),
+    '2026-08-31T00:00:00Z'::timestamptz);
+end $$;
+
+-- Four runs already used today, leaving one of Shop A's default five.
+insert into public.sync_runs (shop_id, status, trigger_source, triggered_by, started_at, finished_at)
+select 'aaaaaaaa-0000-0000-0000-000000000001', 'success', 'manual',
+       '22222222-2222-2222-2222-222222222222',
+       public.shop_day_start('Europe/Athens') + interval '1 hour', now()
+from generate_series(1, 4);
+
+-- =============================================================================
+-- Marketer: the cap holds
+-- =============================================================================
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+do $$
+declare
+  v_quota record;
+  v_run   uuid;
+  v_code  text;
+begin
+  select * into v_quota
+    from public.manual_sync_quota('aaaaaaaa-0000-0000-0000-000000000001');
+
+  perform pg_temp.check_eq('quota counts the runs already used today', v_quota.used, 4);
+  perform pg_temp.check_eq('quota reports the shop allowance', v_quota.allowed, 5);
+  perform pg_temp.check_eq('a marketer is capped', v_quota.is_limited, true);
+
+  -- The fifth is allowed and records a run to report against.
+  v_run := public.claim_manual_sync('aaaaaaaa-0000-0000-0000-000000000001');
+  perform pg_temp.check_eq('the last allowed sync is claimed', v_run is not null, true);
+
+  perform pg_temp.check_eq('the claim records exactly one run',
+    (select count(*) from public.sync_runs
+      where id = v_run and status = 'running' and trigger_source = 'manual'
+        and triggered_by = '22222222-2222-2222-2222-222222222222'),
+    1::bigint);
+
+  -- A second click while the first is still running is refused, so two syncs
+  -- never hammer one shop at once.
+  begin
+    perform public.claim_manual_sync('aaaaaaaa-0000-0000-0000-000000000001');
+    v_code := 'no error';
+  exception when others then
+    v_code := sqlstate;
+  end;
+  perform pg_temp.check_eq('a concurrent sync is refused', v_code, 'PS002');
+end $$;
+
+-- A marketer must not be able to clear their own history to win back syncs.
+do $$
+declare v_before bigint;
+begin
+  select count(*) into v_before from public.sync_runs
+    where shop_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+
+  delete from public.sync_runs where shop_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+
+  perform pg_temp.check_eq('a marketer cannot delete runs to reset the cap',
+    (select count(*) from public.sync_runs
+      where shop_id = 'aaaaaaaa-0000-0000-0000-000000000001'),
+    v_before);
+end $$;
+
+-- Nor insert a run themselves, which would let them forge the audit trail.
+do $$
+declare v_denied boolean;
+begin
+  begin
+    insert into public.sync_runs (shop_id, trigger_source)
+    values ('aaaaaaaa-0000-0000-0000-000000000001', 'manual');
+    v_denied := false;
+  exception when insufficient_privilege then
+    v_denied := true;
+  end;
+  perform pg_temp.check_eq('a marketer cannot write sync history directly', v_denied, true);
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
+-- The in-flight run finishes, so the next claim meets the cap rather than the
+-- concurrency guard.
+update public.sync_runs set status = 'success', finished_at = now() where status = 'running';
+
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+do $$
+declare
+  v_code  text;
+  v_quota record;
+begin
+  begin
+    perform public.claim_manual_sync('aaaaaaaa-0000-0000-0000-000000000001');
+    v_code := 'no error';
+  exception when others then
+    v_code := sqlstate;
+  end;
+  perform pg_temp.check_eq('the sixth sync of the day is refused', v_code, 'PS001');
+
+  select * into v_quota
+    from public.manual_sync_quota('aaaaaaaa-0000-0000-0000-000000000001');
+  perform pg_temp.check_eq('quota reports the allowance as spent', v_quota.used, 5);
+
+  -- A shop whose allowance is zero, and a paused shop, are both refused.
+  begin
+    perform public.claim_manual_sync('cccccccc-0000-0000-0000-000000000003');
+    v_code := 'no error';
+  exception when others then
+    v_code := sqlstate;
+  end;
+  perform pg_temp.check_eq('a shop with no allowance refuses manual syncs', v_code, 'PS003');
+
+  begin
+    perform public.claim_manual_sync('dddddddd-0000-0000-0000-000000000004');
+    v_code := 'no error';
+  exception when others then
+    v_code := sqlstate;
+  end;
+  perform pg_temp.check_eq('a paused shop refuses manual syncs', v_code, 'PS003');
+
+  -- An unassigned shop is refused, and reports nothing about itself.
+  begin
+    perform public.claim_manual_sync('bbbbbbbb-0000-0000-0000-000000000002');
+    v_code := 'no error';
+  exception when others then
+    v_code := sqlstate;
+  end;
+  perform pg_temp.check_eq('an unassigned shop cannot be synced', v_code, '42501');
+
+  perform pg_temp.check_eq('quota says nothing about an unassigned shop',
+    (select count(*) from public.manual_sync_quota('bbbbbbbb-0000-0000-0000-000000000002')),
+    0::bigint);
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
+-- =============================================================================
+-- Yesterday's runs do not count, and the boundary is the shop's own midnight
+-- =============================================================================
+delete from public.sync_runs where shop_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+
+insert into public.sync_runs (shop_id, status, trigger_source, triggered_by, started_at, finished_at)
+values
+  -- One minute before midnight in Athens: yesterday for this shop, even though
+  -- it is still the same UTC date.
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'success', 'manual',
+   '22222222-2222-2222-2222-222222222222',
+   public.shop_day_start('Europe/Athens') - interval '1 minute', now()),
+  -- One minute after: today.
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'success', 'manual',
+   '22222222-2222-2222-2222-222222222222',
+   public.shop_day_start('Europe/Athens') + interval '1 minute', now()),
+  -- Scheduled runs are the platform's own, not the marketer's.
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'success', 'scheduled', null,
+   public.shop_day_start('Europe/Athens') + interval '2 minutes', now());
+
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+do $$
+declare v_quota record;
+begin
+  select * into v_quota
+    from public.manual_sync_quota('aaaaaaaa-0000-0000-0000-000000000001');
+
+  perform pg_temp.check_eq('the allowance covers only the shop''s own day', v_quota.used, 1);
+  perform pg_temp.check_eq('the allowance resets at the next local midnight',
+    v_quota.resets_at,
+    public.shop_day_start('Europe/Athens') + interval '1 day');
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
+-- =============================================================================
+-- Admins are not capped
+-- =============================================================================
+insert into public.sync_runs (shop_id, status, trigger_source, triggered_by, started_at, finished_at)
+select 'aaaaaaaa-0000-0000-0000-000000000001', 'success', 'manual',
+       '11111111-1111-1111-1111-111111111111',
+       public.shop_day_start('Europe/Athens') + interval '1 hour', now()
+from generate_series(1, 8);
+
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare
+  v_quota record;
+  v_run   uuid;
+begin
+  select * into v_quota
+    from public.manual_sync_quota('aaaaaaaa-0000-0000-0000-000000000001');
+
+  perform pg_temp.check_eq('an admin is not capped', v_quota.is_limited, false);
+  perform pg_temp.check_eq('an admin still sees their own usage', v_quota.used, 8);
+
+  -- Well past the shop's allowance of five, and still allowed.
+  v_run := public.claim_manual_sync('aaaaaaaa-0000-0000-0000-000000000001');
+  perform pg_temp.check_eq('an admin syncs past the shop allowance', v_run is not null, true);
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
+update public.sync_runs set status = 'success', finished_at = now() where status = 'running';
+
+-- =============================================================================
+-- A user with no assignment cannot claim a sync at all
+-- =============================================================================
+set role authenticated;
+set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
+
+do $$
+declare v_code text;
+begin
+  begin
+    perform public.claim_manual_sync('aaaaaaaa-0000-0000-0000-000000000001');
+    v_code := 'no error';
+  exception when others then
+    v_code := sqlstate;
+  end;
+  perform pg_temp.check_eq('an unassigned user cannot claim a sync', v_code, '42501');
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
+-- =============================================================================
+-- Scheduling settings are the admin's to change, not the marketer's
+-- =============================================================================
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+do $$
+begin
+  update public.shops
+     set manual_sync_daily_limit = 50, sync_interval_minutes = 60
+   where id = 'aaaaaaaa-0000-0000-0000-000000000001';
+
+  perform pg_temp.check_eq('a marketer cannot raise their own allowance',
+    (select manual_sync_daily_limit from public.shops
+      where id = 'aaaaaaaa-0000-0000-0000-000000000001'),
+    5);
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
+do $$
+declare v_rejected boolean;
+begin
+  -- The check constraints keep a stray value out of the scheduler's arithmetic.
+  begin
+    update public.shops set sync_interval_minutes = 20161
+     where id = 'aaaaaaaa-0000-0000-0000-000000000001';
+    v_rejected := false;
+  exception when check_violation then
+    v_rejected := true;
+  end;
+  perform pg_temp.check_eq('an out-of-range interval is rejected', v_rejected, true);
+
+  begin
+    update public.shops set manual_sync_daily_limit = -1
+     where id = 'aaaaaaaa-0000-0000-0000-000000000001';
+    v_rejected := false;
+  exception when check_violation then
+    v_rejected := true;
+  end;
+  perform pg_temp.check_eq('a negative daily cap is rejected', v_rejected, true);
+end $$;
+
 select 'ALL CHECKS PASSED' as result;

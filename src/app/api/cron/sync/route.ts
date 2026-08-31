@@ -3,16 +3,23 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { safeCompare } from '@/lib/crypto';
 import { serverEnv } from '@/lib/env';
 import { syncShop } from '@/lib/prestashop/sync';
+import { isSyncDue } from '@/lib/sync-schedule';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 /**
- * Scheduled synchronisation for every active shop.
+ * Scheduled synchronisation for the shops that are due.
  *
  * Point a scheduler at this endpoint (Vercel Cron, GitHub Actions, or a plain
  * cron job running curl) with the shared secret in the Authorization header:
  *
  *   curl -X POST https://your-app/api/cron/sync \
  *        -H "Authorization: Bearer $SYNC_CRON_SECRET"
+ *
+ * Run it often — every fifteen minutes or so. Each shop carries its own cadence
+ * (`shops.sync_interval_minutes`), and shops whose interval has not yet elapsed
+ * are skipped, so a frequent tick costs nothing beyond one query. That is what
+ * lets an admin choose hourly for one shop and weekly for another against a
+ * single cron entry.
  *
  * Shops are synced one at a time rather than in parallel, to avoid a burst of
  * concurrent requests against several shops and to keep memory flat.
@@ -45,15 +52,18 @@ export async function POST(request: NextRequest) {
   const supabase = createAdminClient();
   const { data: shops, error } = await supabase
     .from('shops')
-    .select('id, name, last_sync_at')
+    .select('id, name, is_active, sync_interval_minutes, last_sync_at')
     .eq('is_active', true);
 
   if (error) {
     return NextResponse.json({ error: `Could not list shops: ${error.message}` }, { status: 500 });
   }
 
+  const now = new Date();
+  const due = (shops ?? []).filter((shop) => isSyncDue(shop, now));
+
   const results = [];
-  for (const shop of shops ?? []) {
+  for (const shop of due) {
     const since = shop.last_sync_at
       ? new Date(new Date(shop.last_sync_at).getTime() - OVERLAP_MS)
       : undefined;
@@ -79,7 +89,7 @@ export async function POST(request: NextRequest) {
   const failed = results.filter((result) => result.status === 'failed').length;
 
   return NextResponse.json(
-    { synced: results.length, failed, results },
+    { considered: (shops ?? []).length, synced: results.length, failed, results },
     { status: failed > 0 && failed === results.length && results.length > 0 ? 500 : 200 },
   );
 }

@@ -38,7 +38,12 @@ export function formatPercent(value: number, fractionDigits = 1): string {
   return `${value > 0 ? '+' : ''}${value.toFixed(fractionDigits)}%`;
 }
 
-/** "2 minutes ago", "3 days ago" — for sync timestamps. */
+/**
+ * "2 minutes ago", "3 days ago", "in 4 hours" — for sync timestamps.
+ *
+ * Future instants are supported because the same helper renders when a shop is
+ * next due to sync, which is normally still ahead.
+ */
 export function formatRelativeTime(value: string | Date | null | undefined): string {
   if (!value) return 'never';
 
@@ -46,7 +51,8 @@ export function formatRelativeTime(value: string | Date | null | undefined): str
   if (Number.isNaN(date.getTime())) return 'unknown';
 
   const seconds = Math.round((Date.now() - date.getTime()) / 1000);
-  if (seconds < 60) return 'just now';
+  const magnitude = Math.abs(seconds);
+  if (magnitude < 60) return seconds >= 0 ? 'just now' : 'in under a minute';
 
   const units: [Intl.RelativeTimeFormatUnit, number][] = [
     ['minute', 60],
@@ -59,7 +65,9 @@ export function formatRelativeTime(value: string | Date | null | undefined): str
   const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
   let chosen: [Intl.RelativeTimeFormatUnit, number] = units[0]!;
   for (const unit of units) {
-    if (seconds >= unit[1]) chosen = unit;
+    // Chosen on magnitude, so a future instant picks the same unit as a past
+    // one the same distance away.
+    if (magnitude >= unit[1]) chosen = unit;
   }
   return formatter.format(-Math.round(seconds / chosen[1]), chosen[0]);
 }

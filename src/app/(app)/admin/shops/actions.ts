@@ -8,7 +8,13 @@ import { requireAdmin } from '@/lib/auth';
 import { decryptSecret, encryptSecret, fingerprintSecret } from '@/lib/crypto';
 import { PrestaShopClient, PrestaShopError } from '@/lib/prestashop/client';
 import { syncShop } from '@/lib/prestashop/sync';
+import {
+  MAX_MANUAL_SYNC_LIMIT,
+  MAX_SYNC_INTERVAL_MINUTES,
+  MIN_SYNC_INTERVAL_MINUTES,
+} from '@/lib/sync-schedule';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/supabase/server';
 
 /**
  * Shop administration.
@@ -144,6 +150,19 @@ const shopSchema = z.object({
     .toUpperCase()
     .regex(/^[A-Z]{3}$/, 'Use a three-letter currency code such as EUR.'),
   timezone: z.string().trim().min(1, 'Choose a timezone.'),
+  // Bounds mirror the shops_sync_interval_range / shops_manual_sync_limit_range
+  // check constraints, so a rejected value reads as a form error rather than a
+  // database one.
+  syncIntervalMinutes: z.coerce
+    .number()
+    .int('Choose a sync frequency.')
+    .min(MIN_SYNC_INTERVAL_MINUTES, 'Choose a sync frequency.')
+    .max(MAX_SYNC_INTERVAL_MINUTES, 'The longest supported interval is one week.'),
+  manualSyncDailyLimit: z.coerce
+    .number()
+    .int('Choose a daily sync limit.')
+    .min(0, 'A daily limit cannot be negative.')
+    .max(MAX_MANUAL_SYNC_LIMIT, `The highest daily limit is ${MAX_MANUAL_SYNC_LIMIT}.`),
   apiKey: z.string().trim().optional(),
 });
 
@@ -154,6 +173,8 @@ function readShopForm(formData: FormData) {
     psVersion: formData.get('psVersion'),
     currencyCode: formData.get('currencyCode'),
     timezone: formData.get('timezone'),
+    syncIntervalMinutes: formData.get('syncIntervalMinutes') ?? 1440,
+    manualSyncDailyLimit: formData.get('manualSyncDailyLimit') ?? 5,
     apiKey: formData.get('apiKey') ?? undefined,
   });
 }
@@ -175,7 +196,16 @@ export async function createShop(_prev: ActionState, formData: FormData): Promis
     return { error: parsed.error.issues[0]?.message ?? 'Check the details you entered.' };
   }
 
-  const { name, baseUrl, psVersion, currencyCode, timezone, apiKey } = parsed.data;
+  const {
+    name,
+    baseUrl,
+    psVersion,
+    currencyCode,
+    timezone,
+    apiKey,
+    syncIntervalMinutes,
+    manualSyncDailyLimit,
+  } = parsed.data;
 
   if (!apiKey) return { error: 'Enter the webservice key for this shop.' };
   if (!isValidTimezone(timezone)) return { error: 'That timezone was not recognised.' };
@@ -202,6 +232,8 @@ export async function createShop(_prev: ActionState, formData: FormData): Promis
       detected_version: detectedVersion,
       currency_code: currencyCode,
       timezone,
+      sync_interval_minutes: syncIntervalMinutes,
+      manual_sync_daily_limit: manualSyncDailyLimit,
       created_by: admin.id,
     })
     .select('id')
@@ -243,7 +275,16 @@ export async function updateShop(_prev: ActionState, formData: FormData): Promis
     return { error: parsed.error.issues[0]?.message ?? 'Check the details you entered.' };
   }
 
-  const { name, baseUrl, psVersion, currencyCode, timezone, apiKey } = parsed.data;
+  const {
+    name,
+    baseUrl,
+    psVersion,
+    currencyCode,
+    timezone,
+    apiKey,
+    syncIntervalMinutes,
+    manualSyncDailyLimit,
+  } = parsed.data;
   if (!isValidTimezone(timezone)) return { error: 'That timezone was not recognised.' };
 
   const supabase = createAdminClient();
@@ -256,6 +297,8 @@ export async function updateShop(_prev: ActionState, formData: FormData): Promis
       ps_version: psVersion,
       currency_code: currencyCode,
       timezone,
+      sync_interval_minutes: syncIntervalMinutes,
+      manual_sync_daily_limit: manualSyncDailyLimit,
       is_active: formData.get('isActive') === 'on',
     })
     .eq('id', shopId);
@@ -331,6 +374,18 @@ export async function triggerSync(_prev: ActionState, formData: FormData): Promi
 
   const mode = formData.get('mode') === 'full' ? 'full' : 'incremental';
 
+  // Admins go through the same claim as marketers. The daily cap does not apply
+  // to them, but the guard against two overlapping runs against one shop does,
+  // and it keeps every manual run recorded the same way.
+  const userClient = await createClient();
+  const { data: runId, error: claimError } = await userClient.rpc('claim_manual_sync', {
+    p_shop_id: shopId,
+  });
+
+  if (claimError || !runId) {
+    return { error: claimError?.message ?? 'The sync could not be started.' };
+  }
+
   const supabase = createAdminClient();
   const { data: shop } = await supabase
     .from('shops')
@@ -349,6 +404,7 @@ export async function triggerSync(_prev: ActionState, formData: FormData): Promi
     since,
     triggerSource: 'manual',
     triggeredBy: admin.id,
+    runId,
   });
 
   revalidatePath('/admin/shops');

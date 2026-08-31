@@ -14,12 +14,18 @@ export const metadata: Metadata = { title: 'Sync history' };
 export default async function SyncHistoryPage() {
   const supabase = await createClient();
 
-  const [{ data: runs }, { data: shops }] = await Promise.all([
+  const [{ data: runs }, { data: shops }, { data: profiles }] = await Promise.all([
     supabase.from('sync_runs').select('*').order('started_at', { ascending: false }).limit(60),
     supabase.from('shops').select('id, name'),
+    // Admins can read every profile, so this resolves whoever pressed "sync
+    // now" — useful for seeing which marketer is using up a shop's allowance.
+    supabase.from('profiles').select('id, full_name, email'),
   ]);
 
   const shopNames = new Map((shops ?? []).map((shop) => [shop.id, shop.name]));
+  const userNames = new Map(
+    (profiles ?? []).map((profile) => [profile.id, profile.full_name?.trim() || profile.email]),
+  );
 
   return (
     <>
@@ -38,7 +44,7 @@ export default async function SyncHistoryPage() {
         ) : (
           <CardBody className="p-0 sm:p-0">
             <div className="scroll-x">
-              <table className="w-full min-w-[48rem] text-sm">
+              <table className="w-full min-w-[56rem] text-sm">
                 <thead>
                   <tr className="border-b border-border-subtle text-left">
                     <th scope="col" className="px-5 py-3 text-xs font-medium text-content-muted">
@@ -49,6 +55,9 @@ export default async function SyncHistoryPage() {
                     </th>
                     <th scope="col" className="px-4 py-3 text-xs font-medium text-content-muted">
                       Trigger
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-xs font-medium text-content-muted">
+                      Started by
                     </th>
                     <th scope="col" className="px-4 py-3 text-xs font-medium text-content-muted">
                       Orders
@@ -80,6 +89,13 @@ export default async function SyncHistoryPage() {
                       </td>
                       <td className="px-4 py-2.5 text-xs text-content-secondary capitalize">
                         {run.trigger_source}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-content-secondary">
+                        {run.triggered_by ? (
+                          (userNames.get(run.triggered_by) ?? 'Removed account')
+                        ) : (
+                          <span className="text-content-muted">Scheduler</span>
+                        )}
                       </td>
                       <td className="tabular px-4 py-2.5 text-xs text-content-secondary">
                         {formatNumber(run.orders_synced)}

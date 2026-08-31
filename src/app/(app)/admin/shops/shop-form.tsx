@@ -13,6 +13,7 @@ import {
 } from '@/app/(app)/admin/shops/actions';
 import { Button } from '@/components/ui/button';
 import { Field, Input, Select } from '@/components/ui/field';
+import { MANUAL_SYNC_LIMITS, SYNC_CADENCES } from '@/lib/sync-schedule';
 import type { Shop } from '@/lib/supabase/types';
 
 /** A short list covering common shop locations; any IANA name is accepted. */
@@ -253,6 +254,61 @@ export function ShopForm({ shop }: { shop?: Shop }) {
           )}
         </Field>
       </div>
+
+      <fieldset className="space-y-4 border-t border-border-subtle pt-5">
+        <legend className="sr-only">Sync schedule</legend>
+        <div>
+          <h3 className="text-sm font-semibold text-content-primary">Sync schedule</h3>
+          <p className="mt-0.5 text-xs text-content-muted">
+            How often this shop refreshes on its own, and how many times a marketer may refresh it
+            by hand.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field
+            label="Automatic sync frequency"
+            required
+            hint="Runs on the scheduled job; a shorter interval means more requests to the shop"
+          >
+            {(id) => (
+              <Select
+                id={id}
+                name="syncIntervalMinutes"
+                defaultValue={String(shop?.sync_interval_minutes ?? 1440)}
+              >
+                {SYNC_CADENCES.map((cadence) => (
+                  <option key={cadence.minutes} value={cadence.minutes}>
+                    {cadence.label} · {cadence.description}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+
+          <Field
+            label="Marketer syncs per day"
+            required
+            hint="Counted per marketer, per day, in the shop's timezone. Admins are never limited."
+          >
+            {(id) => (
+              <Select
+                id={id}
+                name="manualSyncDailyLimit"
+                defaultValue={String(shop?.manual_sync_daily_limit ?? 5)}
+              >
+                {MANUAL_SYNC_LIMITS.map((limit) => (
+                  <option key={limit} value={limit}>
+                    {limit === 0
+                      ? 'Not allowed'
+                      : `${limit} ${limit === 1 ? 'sync' : 'syncs'} per day`}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        </div>
+      </fieldset>
 
       {isEdit ? (
         <label className="flex items-center gap-2.5 text-sm text-content-primary">

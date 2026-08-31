@@ -50,6 +50,8 @@ export interface Database {
           currency_code: string;
           timezone: string;
           is_active: boolean;
+          sync_interval_minutes: number;
+          manual_sync_daily_limit: number;
           last_sync_at: string | null;
           last_sync_status: SyncStatus | null;
           last_sync_error: string | null;
@@ -66,6 +68,8 @@ export interface Database {
           currency_code?: string;
           timezone?: string;
           is_active?: boolean;
+          sync_interval_minutes?: number;
+          manual_sync_daily_limit?: number;
           created_by?: string | null;
         };
         Update: {
@@ -76,6 +80,8 @@ export interface Database {
           currency_code?: string;
           timezone?: string;
           is_active?: boolean;
+          sync_interval_minutes?: number;
+          manual_sync_daily_limit?: number;
           last_sync_at?: string | null;
           last_sync_status?: SyncStatus | null;
           last_sync_error?: string | null;
@@ -280,6 +286,12 @@ export interface Database {
       has_shop_access: { Args: { p_shop_id: string }; Returns: boolean };
       can_view_metric: { Args: { p_shop_id: string; p_metric: string }; Returns: boolean };
       accessible_shop_ids: { Args: Record<string, never>; Returns: string[] };
+      shop_day_start: { Args: { p_timezone: string; p_at?: string }; Returns: string };
+      manual_sync_quota: {
+        Args: { p_shop_id: string };
+        Returns: { used: number; allowed: number; is_limited: boolean; resets_at: string }[];
+      };
+      claim_manual_sync: { Args: { p_shop_id: string }; Returns: string };
       analytics_summary: {
         Args: { p_shop_ids: string[]; p_from: string; p_to: string; p_only_valid?: boolean };
         Returns: {

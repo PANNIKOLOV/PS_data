@@ -12,6 +12,7 @@ import {
 } from '@/app/(app)/admin/shops/actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/field';
+import { describeCadence } from '@/lib/sync-schedule';
 
 function StateMessage({ state }: { state: ActionState }) {
   if (state.error) {
@@ -72,7 +73,15 @@ export function ConnectionTester({ shopId }: { shopId: string }) {
   );
 }
 
-export function SyncControls({ shopId }: { shopId: string }) {
+export function SyncControls({
+  shopId,
+  intervalMinutes,
+  manualLimit,
+}: {
+  shopId: string;
+  intervalMinutes: number;
+  manualLimit: number;
+}) {
   const [state, formAction] = useActionState<ActionState, FormData>(triggerSync, {});
 
   return (
@@ -102,7 +111,17 @@ export function SyncControls({ shopId }: { shopId: string }) {
       <StateMessage state={state} />
       <p className="text-xs text-content-muted">
         A full resync re-reads the shop&apos;s entire order history and can take several minutes on a
-        large store.
+        large store. Admin syncs are never rate limited.
+      </p>
+      <p className="text-xs text-content-muted">
+        Scheduled: <span className="text-content-secondary">{describeCadence(intervalMinutes)}</span>{' '}
+        · marketers:{' '}
+        <span className="text-content-secondary">
+          {manualLimit === 0
+            ? 'cannot sync by hand'
+            : `${manualLimit} ${manualLimit === 1 ? 'sync' : 'syncs'} per day each`}
+        </span>
+        . Change both under Settings below.
       </p>
     </div>
   );
