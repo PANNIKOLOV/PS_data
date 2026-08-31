@@ -86,10 +86,27 @@ export function nextSyncDueAt(shop: SchedulableShop, now: Date = new Date()): Da
   return new Date(last.getTime() + shop.sync_interval_minutes * 60_000);
 }
 
+/**
+ * How early a shop may be picked up.
+ *
+ * `last_sync_at` records when a run *finished*, so every run pushes the next due
+ * time out by however long the sync took. Without a grace, a scheduler ticking
+ * on the hour arrives seconds before the mark, skips the shop, and waits a whole
+ * extra tick — an hourly shop would quietly sync every two hours, and a daily
+ * one would drift an hour later each day.
+ *
+ * Five minutes absorbs that, and is far shorter than any cadence on offer. It is
+ * halved against very short intervals so the grace can never swallow one.
+ */
+const DUE_GRACE_MS = 5 * 60_000;
+
 /** Whether the scheduled runner should pick this shop up on this tick. */
 export function isSyncDue(shop: SchedulableShop, now: Date = new Date()): boolean {
   const due = nextSyncDueAt(shop, now);
-  return due !== null && due.getTime() <= now.getTime();
+  if (due === null) return false;
+
+  const grace = Math.min(DUE_GRACE_MS, (shop.sync_interval_minutes * 60_000) / 2);
+  return due.getTime() - grace <= now.getTime();
 }
 
 /**
@@ -110,4 +127,75 @@ export function parseManualSyncLimit(value: unknown): number | null {
   if (!Number.isInteger(limit)) return null;
   if (limit < 0 || limit > MAX_MANUAL_SYNC_LIMIT) return null;
   return limit;
+}
+
+/**
+ * Whether the scheduled runner itself looks alive.
+ *
+ * The application never learns what cron expression an admin configured, so the
+ * expected gap is read back from the ticks themselves: the median interval
+ * between recent runs. That adapts to whatever the admin chose without asking
+ * them to tell the app twice, and it is only used to decide when silence has
+ * gone on long enough to be worth flagging.
+ */
+
+export interface SchedulerTick {
+  ran_at: string;
+}
+
+export interface SchedulerHealth {
+  /** `never` — the endpoint has not been reached; `stale` — it has stopped. */
+  state: 'never' | 'stale' | 'healthy';
+  lastRanAt: string | null;
+  ticksLastDay: number;
+  /** Observed gap between ticks in minutes, or null with too few to tell. */
+  cadenceMinutes: number | null;
+}
+
+/** Silence beyond this is flagged even when the cadence is not yet known. */
+const UNKNOWN_CADENCE_TOLERANCE_MS = 90 * 60_000;
+
+/** How many missed ticks to allow before saying something is wrong. */
+const MISSED_TICKS_ALLOWED = 2.5;
+
+export function schedulerHealth(
+  ticks: readonly SchedulerTick[],
+  now: Date = new Date(),
+): SchedulerHealth {
+  // Newest first, matching how the page queries them, but sorted here so the
+  // function does not depend on the caller getting the order right.
+  const times = ticks
+    .map((tick) => new Date(tick.ran_at).getTime())
+    .filter((time) => !Number.isNaN(time))
+    .sort((a, b) => b - a);
+
+  if (times.length === 0) {
+    return { state: 'never', lastRanAt: null, ticksLastDay: 0, cadenceMinutes: null };
+  }
+
+  const lastRan = times[0]!;
+  const dayAgo = now.getTime() - 86_400_000;
+  const ticksLastDay = times.filter((time) => time >= dayAgo).length;
+
+  const gaps: number[] = [];
+  for (let index = 1; index < times.length; index += 1) {
+    gaps.push(times[index - 1]! - times[index]!);
+  }
+
+  // The median, not the mean: one long gap from a restart or a deploy should
+  // not stretch the expectation for every tick after it.
+  const cadenceMs =
+    gaps.length > 0 ? [...gaps].sort((a, b) => a - b)[Math.floor(gaps.length / 2)]! : null;
+
+  const tolerance =
+    cadenceMs !== null
+      ? Math.max(cadenceMs * MISSED_TICKS_ALLOWED, UNKNOWN_CADENCE_TOLERANCE_MS)
+      : UNKNOWN_CADENCE_TOLERANCE_MS;
+
+  return {
+    state: now.getTime() - lastRan > tolerance ? 'stale' : 'healthy',
+    lastRanAt: new Date(lastRan).toISOString(),
+    ticksLastDay,
+    cadenceMinutes: cadenceMs === null ? null : Math.round(cadenceMs / 60_000),
+  };
 }

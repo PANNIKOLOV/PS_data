@@ -9,6 +9,7 @@ import {
   nextSyncDueAt,
   parseManualSyncLimit,
   parseSyncInterval,
+  schedulerHealth,
   type SchedulableShop,
 } from '@/lib/sync-schedule';
 import { formatRelativeTime } from '@/lib/utils';
@@ -55,6 +56,27 @@ describe('when a shop is next due', () => {
 
   it('is due once the interval has elapsed', () => {
     assert.equal(isSyncDue(shop({ last_sync_at: '2026-08-31T05:59:00Z' }), NOW), true);
+  });
+
+  it('is due when the tick lands just short of the mark', () => {
+    /*
+     * The reason this grace exists: last_sync_at is when a run *finished*, so
+     * a run started by the 06:00 tick stamps 06:00:12, and the 12:00 tick then
+     * arrives twelve seconds early. Without the grace an hourly shop on an
+     * hourly cron would sync every two hours.
+     */
+    assert.equal(isSyncDue(shop({ last_sync_at: '2026-08-31T06:00:12Z' }), NOW), true);
+    // Four minutes early still counts; ten does not.
+    assert.equal(isSyncDue(shop({ last_sync_at: '2026-08-31T06:04:00Z' }), NOW), true);
+    assert.equal(isSyncDue(shop({ last_sync_at: '2026-08-31T06:10:00Z' }), NOW), false);
+  });
+
+  it('never lets the grace swallow a short interval', () => {
+    // A four-minute interval gets two minutes of grace, not five, so a shop is
+    // not permanently due.
+    const brisk = shop({ sync_interval_minutes: 4, last_sync_at: '2026-08-31T11:59:00Z' });
+    assert.equal(isSyncDue(brisk, NOW), false);
+    assert.equal(isSyncDue({ ...brisk, last_sync_at: '2026-08-31T11:57:00Z' }, NOW), true);
   });
 
   it('is due immediately when the shop has never synced', () => {
@@ -115,5 +137,70 @@ describe('relative time for a scheduled run', () => {
   it('collapses the minute either side of now', () => {
     assert.equal(formatRelativeTime(new Date(Date.now() - 5_000)), 'just now');
     assert.equal(formatRelativeTime(new Date(Date.now() + 5_000)), 'in under a minute');
+  });
+});
+
+describe('scheduler health', () => {
+  /** `count` ticks ending `endedMinutesAgo` before NOW, `everyMinutes` apart. */
+  function ticks(count: number, everyMinutes: number, endedMinutesAgo = 0) {
+    return Array.from({ length: count }, (_, index) => ({
+      ran_at: new Date(
+        NOW.getTime() - (endedMinutesAgo + index * everyMinutes) * 60_000,
+      ).toISOString(),
+    }));
+  }
+
+  it('reports never when the endpoint has not been reached', () => {
+    const health = schedulerHealth([], NOW);
+    assert.equal(health.state, 'never');
+    assert.equal(health.lastRanAt, null);
+    assert.equal(health.cadenceMinutes, null);
+  });
+
+  it('reads the cadence back from the ticks themselves', () => {
+    const health = schedulerHealth(ticks(12, 60), NOW);
+    assert.equal(health.state, 'healthy');
+    assert.equal(health.cadenceMinutes, 60);
+    assert.equal(health.ticksLastDay, 12);
+  });
+
+  it('is not fooled by one long gap', () => {
+    // A restart leaves a six-hour hole; the median ignores it, the mean would not.
+    const health = schedulerHealth(
+      [...ticks(5, 60), ...ticks(5, 60, 360)],
+      NOW,
+    );
+    assert.equal(health.cadenceMinutes, 60);
+    assert.equal(health.state, 'healthy');
+  });
+
+  it('flags a scheduler that has stopped', () => {
+    // Hourly ticks, then four hours of silence.
+    const health = schedulerHealth(ticks(6, 60, 240), NOW);
+    assert.equal(health.state, 'stale');
+  });
+
+  it('tolerates a couple of missed ticks', () => {
+    const health = schedulerHealth(ticks(6, 60, 120), NOW);
+    assert.equal(health.state, 'healthy');
+  });
+
+  it('gives a frequent scheduler the same benefit of the doubt', () => {
+    // Every 15 minutes: 2.5 missed ticks is under 40 minutes, but silence is
+    // only worth flagging after the floor, so an hour's gap is still healthy.
+    assert.equal(schedulerHealth(ticks(8, 15, 60), NOW).state, 'healthy');
+    assert.equal(schedulerHealth(ticks(8, 15, 120), NOW).state, 'stale');
+  });
+
+  it('counts only the last day, however long the log is', () => {
+    // 48 hourly ticks span two days; the 24-hour boundary is inclusive, so the
+    // one landing exactly on it counts.
+    const health = schedulerHealth(ticks(48, 60), NOW);
+    assert.equal(health.ticksLastDay, 25);
+  });
+
+  it('ignores an unreadable timestamp rather than throwing', () => {
+    const health = schedulerHealth([{ ran_at: 'nonsense' }, ...ticks(3, 60)], NOW);
+    assert.equal(health.state, 'healthy');
   });
 });

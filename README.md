@@ -203,19 +203,38 @@ curl -X POST https://your-app.example.com/api/cron/sync \
      -H "Authorization: Bearer $SYNC_CRON_SECRET"
 ```
 
-Point the schedule at **every fifteen minutes**, not at the cadence you want.
-A shop whose interval has not yet elapsed is skipped, so a frequent tick costs
-one query — and that is what lets one cron entry serve an hourly shop and a
-weekly one at the same time.
+Point the schedule at a **tick rate**, not at the cadence you want — hourly
+(`0 * * * *`) is a sensible floor, every fifteen minutes if you want fresher
+figures. A shop whose interval has not yet elapsed is skipped, so a frequent
+tick costs one query, and that is what lets a single cron entry serve an hourly
+shop and a weekly one at once.
 
 On Vercel, add to `vercel.json`:
 
 ```json
-{ "crons": [{ "path": "/api/cron/sync", "schedule": "*/15 * * * *" }] }
+{ "crons": [{ "path": "/api/cron/sync", "schedule": "0 * * * *" }] }
 ```
 
 Each run re-reads a one-hour overlap so records modified during the previous run
 are not missed, and one unreachable shop does not abandon the rest of the run.
+
+A shop counts as due up to five minutes early. `last_sync_at` records when a run
+*finished*, so without that grace a tick arriving seconds before the mark would
+skip the shop and wait a whole extra tick — an hourly shop on an hourly cron
+would sync every two hours.
+
+### Is it actually running?
+
+**Sync history** in the admin panel opens with the scheduler's own status: when
+it last ticked, how many ticks landed in the last 24 hours, and the cadence read
+back from those ticks. Every call to the endpoint is recorded, including ones
+with nothing due, so a cron that has stopped looks different from a quiet one.
+Failures are shown in full rather than as a tooltip.
+
+If it says the scheduler has never run, the endpoint has not been reached at
+all — usually a missing `SYNC_CRON_SECRET` on the server, or one that does not
+match what the cron job sends. Unauthenticated calls are deliberately not
+recorded, so anyone on the internet cannot fill the log.
 
 ### Sync now
 
@@ -441,11 +460,16 @@ changing it**.
 Add a cPanel **Cron Job** (every six hours shown here):
 
 ```
-*/15 * * * * curl -s -X POST https://your-domain.example/api/cron/sync -H "Authorization: Bearer YOUR_SYNC_CRON_SECRET" >/dev/null 2>&1
+0 * * * * curl -s -X POST https://your-domain.example/api/cron/sync -H "Authorization: Bearer YOUR_SYNC_CRON_SECRET" >> ~/logs/ps-sync.log 2>&1
 ```
 
-Run it every fifteen minutes and let each shop's own interval decide when it
-actually syncs — see [Synchronisation](#synchronisation).
+Each shop's own interval decides when it actually syncs, so one entry serves
+every cadence — see [Synchronisation](#synchronisation). Append the output to a
+file rather than discarding it to `/dev/null`: a silently failing cron otherwise
+looks exactly like a working one.
+
+`SYNC_CRON_SECRET` goes in the same Environment variables panel as the Supabase
+keys. It is read at run time, so adding it needs only a restart, not a rebuild.
 
 #### If the build dies after "Compiled successfully"
 

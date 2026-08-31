@@ -248,6 +248,30 @@ export interface Database {
         Update: Record<string, never>;
         Relationships: [];
       };
+      scheduler_runs: {
+        Row: {
+          id: string;
+          ran_at: string;
+          shops_considered: number;
+          shops_due: number;
+          shops_synced: number;
+          shops_failed: number;
+          duration_ms: number | null;
+          error_message: string | null;
+        };
+        Insert: {
+          id?: string;
+          ran_at?: string;
+          shops_considered?: number;
+          shops_due?: number;
+          shops_synced?: number;
+          shops_failed?: number;
+          duration_ms?: number | null;
+          error_message?: string | null;
+        };
+        Update: Record<string, never>;
+        Relationships: [];
+      };
       sync_runs: {
         Row: {
           id: string;
@@ -367,4 +391,5 @@ export type Profile = Tables<'profiles'>;
 export type Shop = Tables<'shops'>;
 export type ShopAssignment = Tables<'shop_assignments'>;
 export type SyncRun = Tables<'sync_runs'>;
+export type SchedulerRun = Tables<'scheduler_runs'>;
 export type MetricKey = Tables<'metric_keys'>;

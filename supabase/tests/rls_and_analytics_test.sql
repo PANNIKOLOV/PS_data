@@ -591,4 +591,58 @@ begin
   perform pg_temp.check_eq('a negative daily cap is rejected', v_rejected, true);
 end $$;
 
+-- =============================================================================
+-- The scheduler tick log is operational detail, for admins only
+-- =============================================================================
+insert into public.scheduler_runs (shops_considered, shops_due, shops_synced, shops_failed)
+values (4, 2, 2, 0), (4, 0, 0, 0);
+
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+do $$
+declare v_blocked boolean;
+begin
+  perform pg_temp.check_eq('a marketer sees no scheduler ticks',
+    (select count(*) from public.scheduler_runs), 0::bigint);
+
+  -- And cannot write one, which would let them fake a healthy scheduler.
+  begin
+    insert into public.scheduler_runs (shops_considered) values (99);
+    v_blocked := false;
+  exception when insufficient_privilege then
+    v_blocked := true;
+  end;
+  perform pg_temp.check_eq('a marketer cannot write scheduler ticks', v_blocked, true);
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+do $$
+begin
+  perform pg_temp.check_eq('an admin sees every scheduler tick',
+    (select count(*) from public.scheduler_runs), 2::bigint);
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$
+declare v_denied boolean;
+begin
+  begin
+    perform 1 from public.scheduler_runs;
+    v_denied := false;
+  exception when insufficient_privilege then
+    v_denied := true;
+  end;
+  perform pg_temp.check_eq('anonymous callers are denied scheduler ticks', v_denied, true);
+end $$;
+reset role;
+
 select 'ALL CHECKS PASSED' as result;

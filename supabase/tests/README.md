@@ -62,6 +62,9 @@ even when the UTC date has not changed, and scheduled runs never count against a
 marketer. The routes around it are asserted too: a marketer can neither insert
 sync history, delete it to win the allowance back, nor raise the shop's limit.
 
+**The scheduler tick log** — admin-only. A marketer can neither read it nor
+forge a tick into it, and the `anon` role is refused at the privilege layer.
+
 ## Adding a test
 
 Add assertions with the `pg_temp.check_eq` helper inside a `do $$ … $$` block:
