@@ -232,9 +232,18 @@ with nothing due, so a cron that has stopped looks different from a quiet one.
 Failures are shown in full rather than as a tooltip.
 
 If it says the scheduler has never run, the endpoint has not been reached at
-all — usually a missing `SYNC_CRON_SECRET` on the server, or one that does not
-match what the cron job sends. Unauthenticated calls are deliberately not
-recorded, so anyone on the internet cannot fill the log.
+all. The panel distinguishes the two causes: whether `SYNC_CRON_SECRET` is set
+on the server at all (without it every call is refused with `503`), or whether
+it is set and the calls are simply not arriving or being rejected. Run the cron
+job's own command by hand — without `-s`, and without discarding the output —
+and read the reply; `401` means the bearer token does not match the secret.
+Unauthenticated calls are deliberately not recorded, so anyone on the internet
+cannot fill the log.
+
+Note that `/api` is exempt from the authentication middleware on purpose. Route
+handlers there authenticate themselves and answer with a status a machine
+caller can read; redirecting them to an HTML login page would leave a cron job
+with nothing it could act on.
 
 ### Sync now
 

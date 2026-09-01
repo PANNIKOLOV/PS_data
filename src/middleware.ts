@@ -10,9 +10,23 @@ import { publicEnv } from '@/lib/env';
  * This is a redirect for user experience, not an access control boundary. Each
  * page independently resolves the user, and the database enforces Row Level
  * Security regardless of how a request arrives.
+ *
+ * It deliberately does not run for /api (see the matcher below). A machine
+ * client sent an HTML login page instead of its answer has no way to act on it:
+ * the scheduled sync job was redirected to /login with a 307 and silently did
+ * nothing, for as long as this middleware has existed. Route handlers under
+ * /api authenticate themselves — `/api/cron/sync` checks a bearer token — and
+ * answer with a status their caller can read.
  */
 
-const PUBLIC_PATHS = ['/login', '/auth/callback', '/auth/confirm'];
+const PUBLIC_PATHS = [
+  '/login',
+  '/auth/callback',
+  '/auth/confirm',
+  // Signing out must work even when the session has already expired, which is
+  // exactly when a redirect to /login would strand the cookies in place.
+  '/auth/signout',
+];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -69,9 +83,14 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Everything except static assets and image files, which never carry a
-     * session and would only add latency.
+     * Everything except:
+     *   api           — route handlers do their own authentication and must be
+     *                   able to answer a machine caller with a real status.
+     *   _next/static,
+     *   _next/image,
+     *   favicon.ico,
+     *   image files   — never carry a session, so checking one only adds latency.
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!api/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 };

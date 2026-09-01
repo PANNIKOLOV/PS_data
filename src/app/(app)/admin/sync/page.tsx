@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/layout/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/states';
+import { serverEnv } from '@/lib/env';
 import { createClient } from '@/lib/supabase/server';
 import { describeCadence, schedulerHealth, type SchedulerHealth } from '@/lib/sync-schedule';
 import { formatNumber, formatRelativeTime } from '@/lib/utils';
@@ -34,6 +35,7 @@ export default async function SyncHistoryPage() {
   );
 
   const health = schedulerHealth(ticks ?? []);
+  const secretConfigured = isCronSecretConfigured();
   const scheduled = (shops ?? []).filter(
     (shop) => shop.is_active && shop.sync_interval_minutes > 0,
   );
@@ -45,7 +47,11 @@ export default async function SyncHistoryPage() {
         description="Whether the scheduler is running, and what each run collected."
       />
 
-      <SchedulerStatus health={health} scheduledShops={scheduled.length} />
+      <SchedulerStatus
+        health={health}
+        scheduledShops={scheduled.length}
+        secretConfigured={secretConfigured}
+      />
 
       <Card className="mt-4">
         <CardHeader
@@ -218,13 +224,31 @@ export default async function SyncHistoryPage() {
   );
 }
 
+/**
+ * Whether the endpoint would accept a call at all.
+ *
+ * Without this, a missing secret and a cron job that is not running look
+ * identical from here — both show no ticks — and they need opposite fixes.
+ */
+function isCronSecretConfigured(): boolean {
+  try {
+    return Boolean(serverEnv().SYNC_CRON_SECRET);
+  } catch {
+    // Some other server variable is misconfigured; that is a louder problem
+    // than this page can report, and the app would already be failing.
+    return false;
+  }
+}
+
 /** The one figure an admin came here for: is the cron job alive? */
 function SchedulerStatus({
   health,
   scheduledShops,
+  secretConfigured,
 }: {
   health: SchedulerHealth;
   scheduledShops: number;
+  secretConfigured: boolean;
 }) {
   const tone =
     health.state === 'healthy'
@@ -254,12 +278,25 @@ function SchedulerStatus({
                 Nothing has called the sync endpoint. Shops will only update when someone presses
                 Sync now.
               </p>
-              <p>
-                Set <code className="font-mono">SYNC_CRON_SECRET</code> in the server environment,
-                restart the app, then add a cron job posting to{' '}
-                <code className="font-mono break-all">/api/cron/sync</code> with that secret as a
-                bearer token. A 401 back from the endpoint means the two values do not match.
-              </p>
+              {secretConfigured ? (
+                <p>
+                  <code className="font-mono">SYNC_CRON_SECRET</code> is set on the server, so the
+                  endpoint is open and waiting. Either the cron job is not running, or its calls are
+                  being rejected. Run its command by hand — without{' '}
+                  <code className="font-mono">-s</code> and without discarding the output — and read
+                  the reply: <code className="font-mono">401</code> means the bearer token does not
+                  match this secret.
+                </p>
+              ) : (
+                <p>
+                  <code className="font-mono">SYNC_CRON_SECRET</code> is not set on this server, so
+                  the endpoint refuses every call with{' '}
+                  <code className="font-mono">503</code>. Add it to the environment and restart the
+                  app, then point a cron job at{' '}
+                  <code className="font-mono break-all">/api/cron/sync</code> with that same value
+                  as a bearer token.
+                </p>
+              )}
             </div>
           ) : (
             <p className="text-xs text-content-secondary">
