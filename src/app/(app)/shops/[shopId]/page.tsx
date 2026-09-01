@@ -35,6 +35,15 @@ import { formatCurrency, formatNumber, formatRelativeTime } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Shop analytics' };
 
+/**
+ * How many recent orders to pull for the table beneath the charts.
+ *
+ * Fetched in one go and paged in the browser: 150 rows is small enough that
+ * sending them all costs less than a round trip per page, and it keeps the
+ * query string carrying period filters only.
+ */
+const RECENT_ORDERS_LIMIT = 150;
+
 /** Daily buckets stop being useful — and start being expensive — beyond a year. */
 function spansAtMostAYear(range: { from: Date; to: Date }): boolean {
   return range.to.getTime() - range.from.getTime() <= 400 * 86_400_000;
@@ -99,7 +108,9 @@ export default async function ShopDetailPage({
     fetchStatusBreakdown(permissions, scope, view.period),
     fetchPaymentBreakdown(permissions, scope, view.period, view.onlyValid),
     fetchCustomerMix(permissions, scope, view.period, view.onlyValid),
-    can('orders') ? fetchRecentOrders(shop.id, view.period, view.onlyValid) : Promise.resolve([]),
+    can('orders')
+      ? fetchRecentOrders(shop.id, view.period, view.onlyValid, RECENT_ORDERS_LIMIT)
+      : Promise.resolve([]),
     fetchManualSyncQuota(shop.id),
   ]);
 
@@ -361,7 +372,11 @@ export default async function ShopDetailPage({
         <Card className="mt-4">
           <CardHeader
             title="Recent orders"
-            description={`The ${recentOrders.length} most recent in this period · no customer details are stored`}
+            description={
+              recentOrders.length >= RECENT_ORDERS_LIMIT
+                ? `The ${RECENT_ORDERS_LIMIT} most recent in this period · no customer details are stored`
+                : `${recentOrders.length} in this period · no customer details are stored`
+            }
           />
           <CardBody className="p-0 sm:p-0">
             <OrdersTable orders={recentOrders} currency={currency} timezone={shop.timezone} />
