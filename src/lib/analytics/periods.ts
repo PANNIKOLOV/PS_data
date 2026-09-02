@@ -24,6 +24,24 @@ export const PERIOD_PRESETS = [
 ] as const;
 export type PeriodPreset = (typeof PERIOD_PRESETS)[number];
 
+/**
+ * A hand-picked range, rather than one of the presets.
+ *
+ * Kept out of PERIOD_PRESETS so the switch in `resolvePeriod` stays exhaustive:
+ * a custom range needs two dates, which a preset name cannot carry.
+ */
+export const CUSTOM_PERIOD = 'custom';
+export type PeriodSelection = PeriodPreset | typeof CUSTOM_PERIOD;
+
+/**
+ * The longest custom range on offer.
+ *
+ * Not a database limit — the analytics functions aggregate server-side and cope
+ * with more — but a span nobody reads in one chart, and a cheap guard against a
+ * hand-edited URL asking for a thousand years of empty buckets.
+ */
+export const MAX_CUSTOM_RANGE_DAYS = 1827; // five years
+
 export const PERIOD_LABELS: Record<PeriodPreset, string> = {
   today: 'Today',
   yesterday: 'Yesterday',
@@ -44,7 +62,7 @@ export interface DateRange {
 }
 
 export interface ResolvedPeriod extends DateRange {
-  preset: PeriodPreset;
+  preset: PeriodSelection;
   label: string;
   /** Bucket size that suits the span, unless the viewer overrode it. */
   granularity: Granularity;
@@ -58,6 +76,50 @@ export function isPeriodPreset(value: string): value is PeriodPreset {
 
 export function isGranularity(value: string): value is Granularity {
   return (GRANULARITIES as readonly string[]).includes(value);
+}
+
+/** A calendar date the shop would recognise, as `YYYY-MM-DD`. */
+export interface CalendarDate {
+  year: number;
+  month: number;
+  day: number;
+}
+
+const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Reads `YYYY-MM-DD`, rejecting anything that is not a real date.
+ *
+ * The round-trip check is what catches 2026-02-30: Date.UTC would roll it
+ * forward to 2 March rather than refusing it.
+ */
+export function parseCalendarDate(value: string | undefined | null): CalendarDate | null {
+  const match = typeof value === 'string' ? CALENDAR_DATE.exec(value) : null;
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  if (year < 2000 || year > 2100) return null;
+
+  const rolled = new Date(Date.UTC(year, month - 1, day));
+  if (
+    rolled.getUTCFullYear() !== year ||
+    rolled.getUTCMonth() + 1 !== month ||
+    rolled.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return { year, month, day };
+}
+
+/** Renders an instant as the calendar date a `<input type="date">` expects. */
+export function toCalendarDate(instant: Date, timezone: string): string {
+  const parts = partsInTimezone(instant, safeTimezone(timezone));
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}`;
 }
 
 /**
@@ -201,6 +263,69 @@ export function resolvePeriod(
   return {
     preset,
     label: PERIOD_LABELS[preset],
+    from,
+    to,
+    granularity: granularityOverride ?? defaultGranularity(spanMs),
+    previous: { from: new Date(from.getTime() - spanMs), to: from },
+  };
+}
+
+const MONTH_NAMES = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+] as const;
+
+/**
+ * "1 Mar – 15 Apr 2026", dropping whatever both ends share.
+ *
+ * Built from the calendar fields rather than formatted from the instants: these
+ * dates are already the shop's own, and rendering them through Intl in the
+ * viewer's zone would shift them by a day at the edges.
+ */
+function describeRange(from: CalendarDate, to: CalendarDate): string {
+  const day = (date: CalendarDate) => `${date.day} ${MONTH_NAMES[date.month - 1]}`;
+
+  if (from.year === to.year && from.month === to.month && from.day === to.day) {
+    return `${day(from)} ${from.year}`;
+  }
+  if (from.year === to.year) {
+    return `${day(from)} – ${day(to)} ${to.year}`;
+  }
+  return `${day(from)} ${from.year} – ${day(to)} ${to.year}`;
+}
+
+/**
+ * Resolves a hand-picked range, or null when it is not usable.
+ *
+ * `to` is the last day the viewer wants included, which is how a date picker
+ * reads; the returned range runs to the following local midnight so it stays
+ * half-open like every other period here.
+ *
+ * Returning null rather than clamping is deliberate: a caller that cannot make
+ * sense of the dates should fall back to a period the viewer can see is not
+ * what they asked for, instead of quietly reporting on a different window.
+ */
+export function resolveCustomPeriod(
+  fromValue: string | undefined | null,
+  toValue: string | undefined | null,
+  timezone: string,
+  granularityOverride?: Granularity,
+): ResolvedPeriod | null {
+  const startDate = parseCalendarDate(fromValue);
+  const endDate = parseCalendarDate(toValue);
+  if (!startDate || !endDate) return null;
+
+  const tz = safeTimezone(timezone);
+  const from = zonedTimeToInstant(tz, startDate.year, startDate.month, startDate.day);
+  const to = zonedTimeToInstant(tz, endDate.year, endDate.month, endDate.day + 1);
+
+  const spanMs = to.getTime() - from.getTime();
+  if (spanMs <= 0) return null;
+  if (spanMs > MAX_CUSTOM_RANGE_DAYS * DAY_MS) return null;
+
+  return {
+    preset: CUSTOM_PERIOD,
+    label: describeRange(startDate, endDate),
     from,
     to,
     granularity: granularityOverride ?? defaultGranularity(spanMs),

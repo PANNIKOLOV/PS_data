@@ -58,8 +58,18 @@ Amounts are converted into the shop's default currency using each order's own
 correctly. When a cross-shop view spans shops with different base currencies,
 the dashboard says so rather than presenting a misleading sum.
 
+Periods run from today and yesterday through to last 12 months, plus a **custom
+range**: pick a start and end date and the whole page — figures, charts,
+breakdowns, comparison against the preceding window — follows. The end date is
+inclusive, spans up to five years are accepted, and the grouping offered adapts
+to the span so a year never renders as three hundred daily points.
+
 All time bucketing happens in **the shop's own timezone**, so "yesterday" means
-yesterday in the shop's terms, not the viewer's.
+yesterday in the shop's terms, not the viewer's — and a custom range starting on
+1 March starts at midnight in the shop's city, not in the viewer's.
+
+The whole view lives in the query string (`?period=custom&from=…&to=…`), so any
+view can be bookmarked or sent to a colleague.
 
 ## Roles and permissions
 

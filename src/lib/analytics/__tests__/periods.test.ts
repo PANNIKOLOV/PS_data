@@ -2,10 +2,14 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  MAX_CUSTOM_RANGE_DAYS,
   allowedGranularities,
   defaultGranularity,
+  parseCalendarDate,
   percentageChange,
+  resolveCustomPeriod,
   resolvePeriod,
+  toCalendarDate,
 } from '@/lib/analytics/periods';
 
 /** 15 July 2026, 10:00 UTC — a summer date, so Athens is at UTC+3. */
@@ -129,5 +133,115 @@ describe('period-on-period change', () => {
   it('reports no change rather than infinity when there is no baseline', () => {
     assert.equal(percentageChange(100, 0), null);
     assert.equal(percentageChange(0, 0), 0);
+  });
+});
+
+describe('calendar dates', () => {
+  it('reads a well-formed date', () => {
+    assert.deepEqual(parseCalendarDate('2026-03-09'), { year: 2026, month: 3, day: 9 });
+  });
+
+  it('refuses a day that does not exist', () => {
+    // Date.UTC would roll this to 2 March rather than rejecting it.
+    assert.equal(parseCalendarDate('2026-02-30'), null);
+    assert.equal(parseCalendarDate('2026-13-01'), null);
+  });
+
+  it('accepts a leap day only in a leap year', () => {
+    assert.notEqual(parseCalendarDate('2028-02-29'), null);
+    assert.equal(parseCalendarDate('2026-02-29'), null);
+  });
+
+  it('refuses anything that is not YYYY-MM-DD', () => {
+    for (const value of ['', '9/3/2026', '2026-3-9', 'yesterday', undefined, null]) {
+      assert.equal(parseCalendarDate(value), null, String(value));
+    }
+  });
+
+  it('refuses a year outside the range a shop could plausibly use', () => {
+    assert.equal(parseCalendarDate('1899-01-01'), null);
+    assert.equal(parseCalendarDate('9999-01-01'), null);
+  });
+
+  it('renders an instant as the shop sees it, not as the viewer does', () => {
+    // 21:30 UTC on 14 July is already the 15th in Athens.
+    const instant = new Date('2026-07-14T21:30:00Z');
+    assert.equal(toCalendarDate(instant, 'Europe/Athens'), '2026-07-15');
+    assert.equal(toCalendarDate(instant, 'UTC'), '2026-07-14');
+  });
+});
+
+describe('custom ranges', () => {
+  it('runs from local midnight to the midnight after the last day', () => {
+    const period = resolveCustomPeriod('2026-03-01', '2026-03-31', 'Europe/Athens');
+    assert.ok(period);
+    // Midnight in Athens on 1 March is 22:00 UTC on 28 February (EET, UTC+2).
+    assert.equal(period.from.toISOString(), '2026-02-28T22:00:00.000Z');
+    // The end day is inclusive, so the range closes at the start of 1 April.
+    assert.equal(period.to.toISOString(), '2026-03-31T21:00:00.000Z');
+  });
+
+  it('includes a single day when both ends match', () => {
+    const period = resolveCustomPeriod('2026-03-09', '2026-03-09', 'UTC');
+    assert.ok(period);
+    assert.equal(period.from.toISOString(), '2026-03-09T00:00:00.000Z');
+    assert.equal(period.to.toISOString(), '2026-03-10T00:00:00.000Z');
+    assert.equal(period.label, '9 Mar 2026');
+  });
+
+  it('compares against the equally long window immediately before', () => {
+    const period = resolveCustomPeriod('2026-03-08', '2026-03-14', 'UTC');
+    assert.ok(period);
+    assert.equal(period.previous.to.toISOString(), period.from.toISOString());
+    assert.equal(period.previous.from.toISOString(), '2026-03-01T00:00:00.000Z');
+  });
+
+  it('labels a range by dropping what both ends share', () => {
+    assert.equal(resolveCustomPeriod('2026-03-01', '2026-04-15', 'UTC')?.label, '1 Mar – 15 Apr 2026');
+    assert.equal(
+      resolveCustomPeriod('2025-12-20', '2026-01-05', 'UTC')?.label,
+      '20 Dec 2025 – 5 Jan 2026',
+    );
+  });
+
+  it('picks a bucket size to suit the span', () => {
+    assert.equal(resolveCustomPeriod('2026-03-01', '2026-03-31', 'UTC')?.granularity, 'day');
+    assert.equal(resolveCustomPeriod('2024-01-01', '2026-01-01', 'UTC')?.granularity, 'quarter');
+  });
+
+  it('honours an explicit bucket size', () => {
+    const period = resolveCustomPeriod('2026-01-01', '2026-12-31', 'UTC', 'month');
+    assert.equal(period?.granularity, 'month');
+  });
+
+  it('refuses a backwards range rather than swapping it', () => {
+    assert.equal(resolveCustomPeriod('2026-03-31', '2026-03-01', 'UTC'), null);
+  });
+
+  it('refuses a span longer than the cap', () => {
+    const start = new Date('2026-01-01T00:00:00Z');
+    const tooLate = new Date(start.getTime() + MAX_CUSTOM_RANGE_DAYS * 86_400_000);
+    assert.equal(
+      resolveCustomPeriod('2026-01-01', tooLate.toISOString().slice(0, 10), 'UTC'),
+      null,
+    );
+  });
+
+  it('refuses a malformed or missing bound', () => {
+    assert.equal(resolveCustomPeriod('2026-03-01', undefined, 'UTC'), null);
+    assert.equal(resolveCustomPeriod('not-a-date', '2026-03-01', 'UTC'), null);
+  });
+
+  it('falls back to UTC for an unusable timezone', () => {
+    const period = resolveCustomPeriod('2026-03-01', '2026-03-01', 'Not/AZone');
+    assert.equal(period?.from.toISOString(), '2026-03-01T00:00:00.000Z');
+  });
+
+  it('keeps a whole number of days across a clock change', () => {
+    // Europe/Athens moves to summer time on 29 March 2026, so this range is
+    // one hour short of five 24-hour days.
+    const period = resolveCustomPeriod('2026-03-27', '2026-03-31', 'Europe/Athens');
+    assert.ok(period);
+    assert.equal(period.to.getTime() - period.from.getTime(), 5 * 86_400_000 - 3_600_000);
   });
 });

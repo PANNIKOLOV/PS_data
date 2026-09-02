@@ -141,6 +141,8 @@ export default async function ShopDetailPage({
               granularity={view.granularity}
               allowedGranularities={view.granularityOptions}
               onlyValid={view.onlyValid}
+              rangeStart={view.rangeStart}
+              rangeEnd={view.rangeEnd}
             />
             {can('export') ? (
               <ExportButton

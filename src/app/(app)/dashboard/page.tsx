@@ -116,6 +116,8 @@ export default async function DashboardPage({
             granularity={params.granularity}
             allowedGranularities={params.granularityOptions}
             onlyValid={params.onlyValid}
+            rangeStart={params.rangeStart}
+            rangeEnd={params.rangeEnd}
           />
         }
       />

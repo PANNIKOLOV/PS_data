@@ -73,3 +73,91 @@ describe('dashboard parameter parsing', () => {
     assert.ok(year.granularityOptions.includes('month'));
   });
 });
+
+describe('custom range parameters', () => {
+  it('uses a well-formed pair', () => {
+    const parsed = parseDashboardParams(
+      { period: 'custom', from: '2026-03-01', to: '2026-03-31' },
+      SHOPS,
+      'UTC',
+      NOW,
+    );
+    assert.equal(parsed.period.preset, 'custom');
+    assert.equal(parsed.period.label, '1 Mar – 31 Mar 2026');
+    assert.equal(parsed.rangeStart, '2026-03-01');
+    assert.equal(parsed.rangeEnd, '2026-03-31');
+  });
+
+  it('falls back to the default when the dates make no sense', () => {
+    // A reversed pair, a missing bound and a malformed value must all land
+    // somewhere the viewer can see is not what they asked for.
+    for (const raw of [
+      { period: 'custom', from: '2026-03-31', to: '2026-03-01' },
+      { period: 'custom', from: '2026-03-01' },
+      { period: 'custom', from: '2026-03-01', to: '31/03/2026' },
+      { period: 'custom' },
+    ]) {
+      const parsed = parseDashboardParams(raw, SHOPS, 'UTC', NOW);
+      assert.equal(parsed.period.preset, 'last_30_days', JSON.stringify(raw));
+    }
+  });
+
+  it('ignores custom bounds when a preset is selected', () => {
+    const parsed = parseDashboardParams(
+      { period: 'this_month', from: '2020-01-01', to: '2020-12-31' },
+      SHOPS,
+      'UTC',
+      NOW,
+    );
+    assert.equal(parsed.period.preset, 'this_month');
+    assert.equal(parsed.rangeStart, '2026-07-01');
+  });
+
+  it('offers only granularities the custom span supports', () => {
+    const short = parseDashboardParams(
+      { period: 'custom', from: '2026-03-01', to: '2026-03-07' },
+      SHOPS,
+      'UTC',
+      NOW,
+    );
+    assert.deepEqual(short.granularityOptions, ['day']);
+
+    const long = parseDashboardParams(
+      { period: 'custom', from: '2024-01-01', to: '2026-01-01' },
+      SHOPS,
+      'UTC',
+      NOW,
+    );
+    assert.ok(long.granularityOptions.includes('year'));
+  });
+
+  it('honours a granularity the custom span supports', () => {
+    const parsed = parseDashboardParams(
+      { period: 'custom', from: '2026-01-01', to: '2026-12-31', granularity: 'month' },
+      SHOPS,
+      'UTC',
+      NOW,
+    );
+    assert.equal(parsed.granularity, 'month');
+    assert.equal(parsed.period.granularity, 'month');
+  });
+
+  it('reports the range in the shop timezone, end day inclusive', () => {
+    // The range closes at midnight on 1 April in Athens; the last day it
+    // includes is 31 March, which is what the date inputs must show.
+    const parsed = parseDashboardParams(
+      { period: 'custom', from: '2026-03-01', to: '2026-03-31' },
+      SHOPS,
+      'Europe/Athens',
+      NOW,
+    );
+    assert.equal(parsed.rangeStart, '2026-03-01');
+    assert.equal(parsed.rangeEnd, '2026-03-31');
+  });
+
+  it('reports a preset range as dates too, so the pickers can be seeded', () => {
+    const parsed = parseDashboardParams({ period: 'last_7_days' }, SHOPS, 'UTC', NOW);
+    assert.equal(parsed.rangeStart, '2026-07-09');
+    assert.equal(parsed.rangeEnd, '2026-07-15');
+  });
+});
