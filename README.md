@@ -209,7 +209,21 @@ by hand — five by default, and `Not allowed` turns marketer refreshes off.
 closed rather than open.
 
 ```bash
-curl -X POST https://your-app.example.com/api/cron/sync \
+curl -X POST https://your-app.example.com/api/cron/sync -d '' \
+     -H "Authorization: Bearer $SYNC_CRON_SECRET"
+```
+
+The `-d ''` matters. `curl -X POST` with no body sends neither `Content-Length`
+nor `Transfer-Encoding`, and some front-end servers — **LiteSpeed on cPanel**
+among them — answer that with a bare `400` before the request reaches the
+application. It looks exactly like a cron job that is not running. `-d ''` makes
+curl send `Content-Length: 0`, which every server accepts.
+
+`GET` is accepted too, for the same reason, so the shortest command that works
+everywhere is:
+
+```bash
+curl https://your-app.example.com/api/cron/sync \
      -H "Authorization: Bearer $SYNC_CRON_SECRET"
 ```
 
@@ -248,11 +262,18 @@ nothing is syncing:
 | --- | --- | --- |
 | **A call arrived and was turned away** — bearer token | The cron job is running and reaching the app | The token it sends does not match `SYNC_CRON_SECRET`; compare them character for character |
 | **A call arrived and was turned away** — no secret set | The cron job is running and reaching the app | `SYNC_CRON_SECRET` is missing from the environment the app actually runs with |
-| **Scheduler has never run** | Nothing is reaching the app at all | The cron job itself: not scheduled, not firing, or blocked before it arrives |
+| **Scheduler has never run** | Nothing is reaching the app at all | The cron job itself: not scheduled, not firing, or refused by the web server in front of the app |
 
 That last row is the only one that is not an application problem. Run the cron
-job's own command by hand — without `-s`, and without discarding the output —
-and read the reply.
+job's own command by hand with `-i`, and without discarding the output, then
+read the status line:
+
+| Reply | Meaning |
+| --- | --- |
+| `400` with an empty body, `server: LiteSpeed` | The web server refused it before the app saw it — a bodyless POST. Add `-d ''`, or use GET |
+| `307` to `/login` | The build predates the middleware fix; deploy again |
+| `401` / `503` | The call reached the app; the panel now says which |
+| `200` | Working — the tick log will show it |
 
 Refusals are rate-limited to one row every few minutes, so the endpoint being
 public does not let anyone fill the log by hammering it.
@@ -490,8 +511,12 @@ changing it**.
 Add a cPanel **Cron Job** (every six hours shown here):
 
 ```
-0 * * * * curl -s -X POST https://your-domain.example/api/cron/sync -H "Authorization: Bearer YOUR_SYNC_CRON_SECRET" >> ~/logs/ps-sync.log 2>&1
+0 * * * * curl -s https://your-domain.example/api/cron/sync -H "Authorization: Bearer YOUR_SYNC_CRON_SECRET" >> ~/logs/ps-sync.log 2>&1
 ```
+
+A plain GET rather than a POST, deliberately: cPanel fronts the app with
+LiteSpeed, which rejects a bodyless POST with an empty `400` before the app is
+reached. Use `-X POST -d ''` instead if you prefer POST.
 
 Each shop's own interval decides when it actually syncs, so one entry serves
 every cadence — see [Synchronisation](#synchronisation). Append the output to a

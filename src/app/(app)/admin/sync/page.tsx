@@ -314,14 +314,22 @@ function SchedulerStatus({
                 Sync now.
               </p>
               {secretConfigured ? (
-                <p>
-                  <code className="font-mono">SYNC_CRON_SECRET</code> is set on the server, so the
-                  endpoint is open and waiting. Either the cron job is not running, or its calls are
-                  being rejected. Run its command by hand — without{' '}
-                  <code className="font-mono">-s</code> and without discarding the output — and read
-                  the reply: <code className="font-mono">401</code> means the bearer token does not
-                  match this secret.
-                </p>
+                <>
+                  <p>
+                    <code className="font-mono">SYNC_CRON_SECRET</code> is set on the server, so the
+                    endpoint is open and waiting — nothing is reaching it. Run the cron job&apos;s
+                    command by hand with <code className="font-mono">-i</code>, and without
+                    discarding the output, to see what comes back.
+                  </p>
+                  <p>
+                    A <code className="font-mono">400</code> with an empty body means the web server
+                    refused the call before this app saw it:{' '}
+                    <code className="font-mono">curl -X POST</code> with no body sends no
+                    Content-Length, which LiteSpeed rejects. Add{' '}
+                    <code className="font-mono">-d &apos;&apos;</code> to the command, or use a
+                    plain <code className="font-mono">GET</code> — the endpoint accepts both.
+                  </p>
+                </>
               ) : (
                 <p>
                   <code className="font-mono">SYNC_CRON_SECRET</code> is not set on this server, so

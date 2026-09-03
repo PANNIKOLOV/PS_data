@@ -12,8 +12,17 @@ import { createAdminClient } from '@/lib/supabase/admin';
  * Point a scheduler at this endpoint (Vercel Cron, GitHub Actions, or a plain
  * cron job running curl) with the shared secret in the Authorization header:
  *
- *   curl -X POST https://your-app/api/cron/sync \
+ *   curl -X POST https://your-app/api/cron/sync -d '' \
  *        -H "Authorization: Bearer $SYNC_CRON_SECRET"
+ *
+ * GET is accepted as well as POST. A bodyless POST carries neither
+ * Content-Length nor Transfer-Encoding, and some front-end servers — LiteSpeed
+ * on cPanel among them — answer that with a bare 400 before the application is
+ * ever reached, which looks exactly like a cron job that is not running. GET
+ * sidesteps that entirely. It does mutate, which GET is not supposed to do, but
+ * the trade is worth it here: the endpoint is reachable only with a bearer
+ * token, so nothing a browser or crawler does can trigger it by accident, and
+ * a sync is idempotent — it upserts, and a repeat is a no-op.
  *
  * Run it often — hourly, or every fifteen minutes. Each shop carries its own
  * cadence (`shops.sync_interval_minutes`), and shops whose interval has not yet
@@ -49,6 +58,15 @@ const TICK_RETENTION_DAYS = 30;
 const REFUSAL_LOG_INTERVAL_MS = 5 * 60_000;
 
 export async function POST(request: NextRequest) {
+  return runScheduledSync(request);
+}
+
+/** See the note above: some shared hosts refuse a bodyless POST outright. */
+export async function GET(request: NextRequest) {
+  return runScheduledSync(request);
+}
+
+async function runScheduledSync(request: NextRequest) {
   const configuredSecret = serverEnv().SYNC_CRON_SECRET;
 
   // Without a configured secret the endpoint stays closed rather than open.
