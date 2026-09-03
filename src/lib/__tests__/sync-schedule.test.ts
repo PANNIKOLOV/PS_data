@@ -204,3 +204,65 @@ describe('scheduler health', () => {
     assert.equal(health.state, 'healthy');
   });
 });
+
+describe('scheduler health with refused calls', () => {
+  const at = (minutesAgo: number, outcome?: 'ran' | 'unauthorised' | 'not_configured') => ({
+    ran_at: new Date(NOW.getTime() - minutesAgo * 60_000).toISOString(),
+    ...(outcome ? { outcome } : {}),
+  });
+
+  it('says calls are arriving when every one is refused', () => {
+    // The whole point: this is not "never run". Something IS calling, so the
+    // cron job and the schedule are fine and the secret is not.
+    const health = schedulerHealth([at(5, 'unauthorised'), at(65, 'unauthorised')], NOW);
+    assert.equal(health.state, 'refused');
+    assert.equal(health.refusedReason, 'unauthorised');
+    assert.equal(health.lastRanAt, null);
+  });
+
+  it('distinguishes a missing secret from a wrong one', () => {
+    const health = schedulerHealth([at(5, 'not_configured')], NOW);
+    assert.equal(health.state, 'refused');
+    assert.equal(health.refusedReason, 'not_configured');
+  });
+
+  it('reports refused when the secret stopped matching after working', () => {
+    // Ran happily for hours, then every call started being turned away.
+    const health = schedulerHealth(
+      [at(5, 'unauthorised'), at(65, 'unauthorised'), at(125, 'ran'), at(185, 'ran')],
+      NOW,
+    );
+    assert.equal(health.state, 'refused');
+    assert.notEqual(health.lastRanAt, null);
+  });
+
+  it('ignores an old refusal once calls are running again', () => {
+    const health = schedulerHealth(
+      [at(5, 'ran'), at(65, 'ran'), at(125, 'unauthorised')],
+      NOW,
+    );
+    assert.equal(health.state, 'healthy');
+  });
+
+  it('reads a refusal as such even among accepted ticks', () => {
+    const health = schedulerHealth([at(5, 'ran'), at(65, 'unauthorised'), at(125, 'ran')], NOW);
+    assert.equal(health.state, 'healthy');
+    assert.notEqual(health.refusedAt, null);
+  });
+
+  it('treats a row with no outcome as an accepted call', () => {
+    // Rows written before the column existed must not read as refusals.
+    const health = schedulerHealth([at(5), at(65), at(125)], NOW);
+    assert.equal(health.state, 'healthy');
+    assert.equal(health.refusedReason, null);
+  });
+
+  it('counts only accepted calls towards the cadence', () => {
+    // Hourly accepted ticks with refusals interleaved must still read hourly.
+    const health = schedulerHealth(
+      [at(5, 'unauthorised'), at(10, 'ran'), at(70, 'ran'), at(130, 'ran'), at(190, 'ran')],
+      NOW,
+    );
+    assert.equal(health.cadenceMinutes, 60);
+  });
+});

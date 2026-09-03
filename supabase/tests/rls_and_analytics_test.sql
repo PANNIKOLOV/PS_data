@@ -597,6 +597,26 @@ end $$;
 insert into public.scheduler_runs (shops_considered, shops_due, shops_synced, shops_failed)
 values (4, 2, 2, 0), (4, 0, 0, 0);
 
+-- A refused call is recorded too, so "nothing is calling" and "everything that
+-- calls is turned away" can be told apart.
+insert into public.scheduler_runs (outcome, error_message)
+values ('unauthorised', 'A call arrived with a missing or incorrect bearer token.');
+
+do $$
+declare v_rejected boolean;
+begin
+  perform pg_temp.check_eq('an accepted call defaults to the ran outcome',
+    (select count(*) from public.scheduler_runs where outcome = 'ran'), 2::bigint);
+
+  begin
+    insert into public.scheduler_runs (outcome) values ('something-else');
+    v_rejected := false;
+  exception when check_violation then
+    v_rejected := true;
+  end;
+  perform pg_temp.check_eq('an unknown outcome is rejected', v_rejected, true);
+end $$;
+
 set role authenticated;
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
 
@@ -625,7 +645,9 @@ set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
 do $$
 begin
   perform pg_temp.check_eq('an admin sees every scheduler tick',
-    (select count(*) from public.scheduler_runs), 2::bigint);
+    (select count(*) from public.scheduler_runs), 3::bigint);
+  perform pg_temp.check_eq('an admin sees the refused call',
+    (select count(*) from public.scheduler_runs where outcome = 'unauthorised'), 1::bigint);
 end $$;
 
 reset role;

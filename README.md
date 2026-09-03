@@ -241,14 +241,25 @@ back from those ticks. Every call to the endpoint is recorded, including ones
 with nothing due, so a cron that has stopped looks different from a quiet one.
 Failures are shown in full rather than as a tooltip.
 
-If it says the scheduler has never run, the endpoint has not been reached at
-all. The panel distinguishes the two causes: whether `SYNC_CRON_SECRET` is set
-on the server at all (without it every call is refused with `503`), or whether
-it is set and the calls are simply not arriving or being rejected. Run the cron
+Refused calls are recorded too, which is what separates the three reasons
+nothing is syncing:
+
+| The panel says | What is happening | What to change |
+| --- | --- | --- |
+| **A call arrived and was turned away** — bearer token | The cron job is running and reaching the app | The token it sends does not match `SYNC_CRON_SECRET`; compare them character for character |
+| **A call arrived and was turned away** — no secret set | The cron job is running and reaching the app | `SYNC_CRON_SECRET` is missing from the environment the app actually runs with |
+| **Scheduler has never run** | Nothing is reaching the app at all | The cron job itself: not scheduled, not firing, or blocked before it arrives |
+
+That last row is the only one that is not an application problem. Run the cron
 job's own command by hand — without `-s`, and without discarding the output —
-and read the reply; `401` means the bearer token does not match the secret.
-Unauthenticated calls are deliberately not recorded, so anyone on the internet
-cannot fill the log.
+and read the reply.
+
+Refusals are rate-limited to one row every few minutes, so the endpoint being
+public does not let anyone fill the log by hammering it.
+
+`SYNC_CRON_SECRET` must be in `.env.local`. A value in `.env.example` is never
+read — that file is a template — and the app must be restarted after the
+variable is added, because the environment is read once at startup.
 
 Note that `/api` is exempt from the authentication middleware on purpose. Route
 handlers there authenticate themselves and answer with a status a machine

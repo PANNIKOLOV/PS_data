@@ -38,11 +38,22 @@ const OVERLAP_MS = 60 * 60 * 1000;
 /** Ticks older than this are pruned, so the log stays a window not an archive. */
 const TICK_RETENTION_DAYS = 30;
 
+/**
+ * How close together two refused calls may both be recorded.
+ *
+ * A refusal is worth logging — it is usually the answer to "why is nothing
+ * syncing?" — but the endpoint is public, so anyone could otherwise fill the
+ * table by hammering it. One row every five minutes is enough to show a cron
+ * job calling on any sane schedule, and bounds the table at a few hundred rows.
+ */
+const REFUSAL_LOG_INTERVAL_MS = 5 * 60_000;
+
 export async function POST(request: NextRequest) {
   const configuredSecret = serverEnv().SYNC_CRON_SECRET;
 
   // Without a configured secret the endpoint stays closed rather than open.
   if (!configuredSecret) {
+    await recordRefusal('not_configured');
     return NextResponse.json(
       { error: 'Scheduled sync is not configured. Set SYNC_CRON_SECRET to enable it.' },
       { status: 503 },
@@ -52,9 +63,8 @@ export async function POST(request: NextRequest) {
   const header = request.headers.get('authorization') ?? '';
   const provided = header.startsWith('Bearer ') ? header.slice(7) : '';
 
-  // An unauthenticated caller is not recorded: the tick log is a record of the
-  // real schedule, and anyone on the internet could otherwise fill it.
   if (!provided || !safeCompare(provided, configuredSecret)) {
+    await recordRefusal('unauthorised');
     return NextResponse.json({ error: 'Unauthorised.' }, { status: 401 });
   }
 
@@ -147,12 +157,46 @@ async function recordTick(row: {
 }): Promise<void> {
   try {
     const supabase = createAdminClient();
-    await supabase.from('scheduler_runs').insert(row);
+    await supabase.from('scheduler_runs').insert({ ...row, outcome: 'ran' });
     await supabase
       .from('scheduler_runs')
       .delete()
       .lt('ran_at', new Date(Date.now() - TICK_RETENTION_DAYS * 86_400_000).toISOString());
   } catch {
     // Nothing useful to do here; the response still reports the real outcome.
+  }
+}
+
+/**
+ * Records a call that was turned away, at most one every few minutes.
+ *
+ * This is what tells an admin the difference between a cron job that is not
+ * running and one whose calls are arriving and being refused — the two look
+ * identical otherwise, and need opposite fixes. Rate-limited because the
+ * endpoint is reachable by anyone.
+ */
+async function recordRefusal(outcome: 'unauthorised' | 'not_configured'): Promise<void> {
+  try {
+    const supabase = createAdminClient();
+
+    const { data: recent } = await supabase
+      .from('scheduler_runs')
+      .select('ran_at')
+      .neq('outcome', 'ran')
+      .order('ran_at', { ascending: false })
+      .limit(1);
+
+    const last = recent?.[0]?.ran_at;
+    if (last && Date.now() - new Date(last).getTime() < REFUSAL_LOG_INTERVAL_MS) return;
+
+    await supabase.from('scheduler_runs').insert({
+      outcome,
+      error_message:
+        outcome === 'unauthorised'
+          ? 'A call arrived with a missing or incorrect bearer token.'
+          : 'A call arrived, but SYNC_CRON_SECRET is not set on this server.',
+    });
+  } catch {
+    // Never let bookkeeping change the answer the caller receives.
   }
 }

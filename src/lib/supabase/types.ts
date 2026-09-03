@@ -10,6 +10,12 @@ export type UserRole = 'admin' | 'marketer';
 export type PsVersion = '1.7' | '8' | '9';
 export type SyncStatus = 'pending' | 'running' | 'success' | 'partial' | 'failed';
 
+/**
+ * What became of a call to the scheduled sync endpoint. Not a database enum —
+ * a text column with a check constraint, so adding a case needs no type swap.
+ */
+export type SchedulerOutcome = 'ran' | 'unauthorised' | 'not_configured';
+
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export interface Database {
@@ -252,6 +258,7 @@ export interface Database {
         Row: {
           id: string;
           ran_at: string;
+          outcome: SchedulerOutcome;
           shops_considered: number;
           shops_due: number;
           shops_synced: number;
@@ -262,6 +269,7 @@ export interface Database {
         Insert: {
           id?: string;
           ran_at?: string;
+          outcome?: SchedulerOutcome;
           shops_considered?: number;
           shops_due?: number;
           shops_synced?: number;

@@ -56,7 +56,7 @@ export default async function SyncHistoryPage() {
       <Card className="mt-4">
         <CardHeader
           title="Scheduler ticks"
-          description="Every call to the sync endpoint, including ones with nothing due. Kept for 30 days."
+          description="Every call to the sync endpoint, including ones with nothing due and ones that were refused. Kept for 30 days."
         />
         {(ticks ?? []).length === 0 ? (
           <EmptyState
@@ -85,19 +85,30 @@ export default async function SyncHistoryPage() {
                         {formatRelativeTime(tick.ran_at)}
                       </td>
                       <td className="tabular px-4 py-2.5 text-xs text-content-secondary">
-                        {formatNumber(tick.shops_considered)}
+                        {tick.outcome === 'ran' ? formatNumber(tick.shops_considered) : '—'}
                       </td>
                       <td className="tabular px-4 py-2.5 text-xs text-content-secondary">
-                        {formatNumber(tick.shops_due)}
+                        {tick.outcome === 'ran' ? formatNumber(tick.shops_due) : '—'}
                       </td>
                       <td className="tabular px-4 py-2.5 text-xs text-content-secondary">
-                        {formatNumber(tick.shops_synced)}
+                        {tick.outcome === 'ran' ? formatNumber(tick.shops_synced) : '—'}
                       </td>
                       <td className="tabular px-4 py-2.5 text-xs text-content-secondary">
                         {tick.duration_ms === null ? '—' : `${(tick.duration_ms / 1000).toFixed(1)}s`}
                       </td>
                       <td className="px-5 py-2.5">
-                        {tick.shops_failed > 0 || tick.error_message ? (
+                        {tick.outcome !== 'ran' ? (
+                          <div className="space-y-1">
+                            <Badge tone="negative">
+                              {tick.outcome === 'not_configured' ? 'No secret set' : 'Refused'}
+                            </Badge>
+                            {tick.error_message ? (
+                              <p className="max-w-md text-xs break-words text-negative">
+                                {tick.error_message}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : tick.shops_failed > 0 || tick.error_message ? (
                           <div className="space-y-1">
                             <Badge tone="negative">
                               {tick.shops_failed > 0
@@ -261,9 +272,11 @@ function SchedulerStatus({
   const headline =
     health.state === 'healthy'
       ? `Scheduler ran ${formatRelativeTime(health.lastRanAt)}`
-      : health.state === 'stale'
-        ? `Scheduler last ran ${formatRelativeTime(health.lastRanAt)}`
-        : 'Scheduler has never run';
+      : health.state === 'refused'
+        ? `A call arrived ${formatRelativeTime(health.refusedAt)} and was turned away`
+        : health.state === 'stale'
+          ? `Scheduler last ran ${formatRelativeTime(health.lastRanAt)}`
+          : 'Scheduler has never run';
 
   return (
     <div className={`rounded-(--radius-card) border px-4 py-3.5 ${tone.wrap}`}>
@@ -272,7 +285,29 @@ function SchedulerStatus({
         <div className="min-w-0 space-y-1">
           <p className={`text-sm font-semibold ${tone.text}`}>{headline}</p>
 
-          {health.state === 'never' ? (
+          {health.state === 'refused' ? (
+            <div className="space-y-1.5 text-xs text-content-secondary">
+              <p>
+                The cron job is running and reaching the app — this is not a scheduling problem.
+                The call is being refused before any shop is checked.
+              </p>
+              {health.refusedReason === 'not_configured' ? (
+                <p>
+                  <code className="font-mono">SYNC_CRON_SECRET</code> is not set in the environment
+                  this app is actually running with. Note that it must be in{' '}
+                  <code className="font-mono">.env.local</code> — a value in{' '}
+                  <code className="font-mono">.env.example</code> is never read — and the app has to
+                  be restarted after adding it.
+                </p>
+              ) : (
+                <p>
+                  The bearer token the cron job sends does not match{' '}
+                  <code className="font-mono">SYNC_CRON_SECRET</code> on the server. Compare the two
+                  character for character; a trailing space or a truncated paste is the usual cause.
+                </p>
+              )}
+            </div>
+          ) : health.state === 'never' ? (
             <div className="space-y-1.5 text-xs text-content-secondary">
               <p>
                 Nothing has called the sync endpoint. Shops will only update when someone presses

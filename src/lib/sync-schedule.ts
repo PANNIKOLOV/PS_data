@@ -141,15 +141,25 @@ export function parseManualSyncLimit(value: unknown): number | null {
 
 export interface SchedulerTick {
   ran_at: string;
+  /** Absent on rows written before refusals were recorded; treated as a run. */
+  outcome?: 'ran' | 'unauthorised' | 'not_configured' | null;
 }
 
 export interface SchedulerHealth {
-  /** `never` — the endpoint has not been reached; `stale` — it has stopped. */
-  state: 'never' | 'stale' | 'healthy';
+  /**
+   * `never`    — nothing has called the endpoint.
+   * `refused`  — calls are arriving but being turned away.
+   * `stale`    — calls ran, then stopped.
+   * `healthy`  — calls are arriving and running.
+   */
+  state: 'never' | 'refused' | 'stale' | 'healthy';
   lastRanAt: string | null;
   ticksLastDay: number;
-  /** Observed gap between ticks in minutes, or null with too few to tell. */
+  /** Observed gap between accepted ticks in minutes, or null with too few. */
   cadenceMinutes: number | null;
+  /** Why the most recent call was turned away, when that is what happened. */
+  refusedAt: string | null;
+  refusedReason: 'unauthorised' | 'not_configured' | null;
 }
 
 /** Silence beyond this is flagged even when the cadence is not yet known. */
@@ -162,15 +172,34 @@ export function schedulerHealth(
   ticks: readonly SchedulerTick[],
   now: Date = new Date(),
 ): SchedulerHealth {
-  // Newest first, matching how the page queries them, but sorted here so the
-  // function does not depend on the caller getting the order right.
-  const times = ticks
-    .map((tick) => new Date(tick.ran_at).getTime())
-    .filter((time) => !Number.isNaN(time))
-    .sort((a, b) => b - a);
+  const dated = ticks
+    .map((tick) => ({ at: new Date(tick.ran_at).getTime(), outcome: tick.outcome ?? 'ran' }))
+    .filter((tick) => !Number.isNaN(tick.at))
+    // Newest first, matching how the page queries them, but sorted here so the
+    // function does not depend on the caller getting the order right.
+    .sort((a, b) => b.at - a.at);
+
+  const refused = dated.find((tick) => tick.outcome !== 'ran');
+  const refusedAt = refused ? new Date(refused.at).toISOString() : null;
+  const refusedReason = refused
+    ? (refused.outcome as 'unauthorised' | 'not_configured')
+    : null;
+
+  // Only accepted calls describe the schedule; a refused one proves the cron
+  // job is alive but says nothing about how often work actually happens.
+  const times = dated.filter((tick) => tick.outcome === 'ran').map((tick) => tick.at);
 
   if (times.length === 0) {
-    return { state: 'never', lastRanAt: null, ticksLastDay: 0, cadenceMinutes: null };
+    return {
+      // A refusal still means something is calling — the most useful thing an
+      // admin can be told, because it rules out the schedule itself.
+      state: refused ? 'refused' : 'never',
+      lastRanAt: null,
+      ticksLastDay: 0,
+      cadenceMinutes: null,
+      refusedAt,
+      refusedReason,
+    };
   }
 
   const lastRan = times[0]!;
@@ -192,10 +221,25 @@ export function schedulerHealth(
       ? Math.max(cadenceMs * MISSED_TICKS_ALLOWED, UNKNOWN_CADENCE_TOLERANCE_MS)
       : UNKNOWN_CADENCE_TOLERANCE_MS;
 
+  // A refusal newer than the last accepted call is the live problem, whatever
+  // the older history looks like: the secret changed, or was removed.
+  if (refused && refused.at > lastRan) {
+    return {
+      state: 'refused',
+      lastRanAt: new Date(lastRan).toISOString(),
+      ticksLastDay,
+      cadenceMinutes: cadenceMs === null ? null : Math.round(cadenceMs / 60_000),
+      refusedAt,
+      refusedReason,
+    };
+  }
+
   return {
     state: now.getTime() - lastRan > tolerance ? 'stale' : 'healthy',
     lastRanAt: new Date(lastRan).toISOString(),
     ticksLastDay,
     cadenceMinutes: cadenceMs === null ? null : Math.round(cadenceMs / 60_000),
+    refusedAt,
+    refusedReason,
   };
 }
